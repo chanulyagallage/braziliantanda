@@ -73,49 +73,67 @@ const clips = {};          // dance id -> AnimationClip
 const clock = new THREE.Clock();
 
 // The girl on the website comes from this file - every dance plays on her.
-const CHARACTER_FILE = 'Dances/Bhoomini/AIBrazillianPump.glb';
+const CHARACTER_FILE = 'Dances/Magdalene/shakastep.glb';
 
 async function loadEverything() {
   let model = null;
-  try {
-    const gltf = await loader.loadAsync(CHARACTER_FILE);
-    model = gltf.scene;
+  const hasBody = (g) => { let n = 0; g.scene.traverse(o => { if (o.isMesh) n++; }); return n > 0; };
+  const useAsGirl = (g, file) => {
+    model = g.scene;
     scene.add(model);
     mixer = new THREE.AnimationMixer(model);
     frameModel(model);
+    console.log('The girl comes from:', file);
+  };
+  try {
+    const gltf = await loader.loadAsync(CHARACTER_FILE);
+    if (hasBody(gltf)) useAsGirl(gltf, CHARACTER_FILE);
   } catch (err) {
     console.warn('Could not load character', CHARACTER_FILE, err);
   }
   for (const dance of DANCES) {
     try {
       const gltf = await loader.loadAsync(dance.file);
-      if (!model) {
-        model = gltf.scene;
-        scene.add(model);
-        mixer = new THREE.AnimationMixer(model);
-        frameModel(model);
-      }
+      if (!model && hasBody(gltf)) useAsGirl(gltf, dance.file);   // no body yet? borrow it from this file
       const clip = gltf.animations.find(a => a.name === dance.id) || gltf.animations[0];
       if (clip) clips[dance.id] = clip;
     } catch (err) {
       console.warn('Could not load', dance.file, err);
     }
   }
+  if (!model) console.warn('None of the .glb files have her body - export character.glb in Object Mode');
   document.getElementById('loading').textContent =
-    model ? '' : 'No dances found – export your .glb files into the dances/ folder.';
+    model ? '' : 'No body found – export character.glb in Object Mode.';
   renderLibrary();
 }
 
 function frameModel(model) {
-  const box = new THREE.Box3().setFromObject(model);
-  const size = box.getSize(new THREE.Vector3());
+  let box = new THREE.Box3().setFromObject(model);
+  let size = box.getSize(new THREE.Vector3());
+  let meshes = 0;
+  model.traverse(o => { if (o.isMesh) meshes++; });
+  console.log('Character: meshes =', meshes, '| size =', size.x, size.y, size.z);
+  // if she comes in way too small or way too big, scale her to normal human height
+  if (isFinite(size.y) && size.y > 0 && (size.y < 0.5 || size.y > 5)) {
+    model.scale.multiplyScalar(1.7 / size.y);
+    model.updateMatrixWorld(true);
+    box = new THREE.Box3().setFromObject(model);
+    size = box.getSize(new THREE.Vector3());
+  }
+  if (!isFinite(size.y) || size.y <= 0) {
+    console.warn('No body found in CHARACTER_FILE - export it in Object Mode with her body selected');
+    camera.position.set(0, 1, 4);
+    controls.target.set(0, 1, 0);
+    controls.update();
+    return;
+  }
   const center = box.getCenter(new THREE.Vector3());
   model.position.x -= center.x;
   model.position.z -= center.z;
   model.position.y -= box.min.y;              // feet on the floor
-  const height = size.y;
-  camera.position.set(0, height * 0.6, height * 2.4);
-  controls.target.set(0, height * 0.5, 0);
+  const h = size.y;
+  camera.position.set(0, h * 0.6, h * 2.4);
+  controls.target.set(0, h * 0.5, 0);
   controls.update();
 }
 
