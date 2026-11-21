@@ -121,3 +121,6 @@ button.small { padding: 4px 9px; font-size: 0.85rem; border-radius: 8px; }
 .ai-out h3 { margin: 0 0 6px; color: var(--accent-2); font-size: 1rem; }
 .ai-out ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
 .ai-out .error { color: #ff7a7a; }
+
+.bg-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; justify-content: center; }
+.bg-picker button.active { outline: 2px solid #fff; }
