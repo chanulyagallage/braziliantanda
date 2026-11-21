@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { createRetargeter } from './retarget.js';
 import { loadRecordedMoves } from './recorded-moves.js';
-import { getCurrentSong, setupSongPicker, startMusic, stopMusic, tempoFactor, musicTimeUp, keepDancing } from './music.js';
+import { getCurrentSong, setupSongPicker, startMusic, stopMusic, tempoFactor, musicTimeUp, keepDancing, getMusicState, restoreMusic } from './music.js';
 
 // ================= YOUR DANCES =================
 // Add a line here for every new dance. "id" must match the action name in Blender.
@@ -271,8 +271,11 @@ async function loadEverything() {
   if (!model) loading.textContent = 'No body found – export character.glb in Object Mode.';
   await refreshRecorded();
   renderLibrary();
+  await restoreState();          // put back the routine and song from last time
   renderRoutine();
-  setNowPlaying('Ready');
+  renderSettings();
+  if (cursor > 0) { showPoseAt(cursor); setNowPlaying(`Paused at ${fmtTime(cursor)}`); }
+  else setNowPlaying('Ready');
 }
 
 function frameModel(model) {
@@ -600,6 +603,7 @@ function renderRoutine() {
   cursor = clamp(cursor, 0, totalSeconds());
   highlightPlaying();
   updatePin();
+  saveState();
 }
 
 function highlightPlaying() {
@@ -1014,6 +1018,74 @@ $('prompt').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askAI(); }   // Enter sends, Shift+Enter = new line
 });
 
+// ================= REMEMBER EVERYTHING BETWEEN PAGES =================
+// Going to the camera-tracking page leaves this page, so the routine, song,
+// pin, background and view are saved in the browser and put back on return.
+const STATE_KEY = 'jinga:state';
+let restored = false;    // don't save until the old state has been put back
+
+function saveState() {
+  if (!restored) return;
+  const state = {
+    routine: routine.map(({ id, speed, repeats }) => ({ id, speed, repeats })),
+    routineName: $('routineName').textContent,
+    cursor,
+    bg: bgIndex,
+    zoom: zoomRange.value,
+    rot: rotRange.value,
+    music: getMusicState(),
+  };
+  try { localStorage.setItem(STATE_KEY, JSON.stringify(state)); } catch {}
+}
+
+function loadSavedState() {
+  try { return JSON.parse(localStorage.getItem(STATE_KEY)) || null; } catch { return null; }
+}
+
+// Background and view can go back straight away (no loading needed)
+function restoreLook() {
+  const s = loadSavedState();
+  if (!s) return;
+  if (Number.isInteger(s.bg) && BACKGROUNDS[s.bg] && s.bg !== bgIndex) setBackground(s.bg);
+  if (s.zoom) zoomRange.value = s.zoom;
+  if (s.rot !== undefined) rotRange.value = s.rot;
+  applyView();
+}
+
+// The routine and song go back once the moves have loaded
+async function restoreState() {
+  const s = loadSavedState();
+  if (s) {
+    if (Array.isArray(s.routine)) {
+      routine = s.routine
+        .filter((x) => x && clips[x.id])
+        .map((x) => ({ id: x.id, speed: clamp(+x.speed || 1, 0.25, 2.5), repeats: clamp(Math.round(+x.repeats || 1), 1, 8) }));
+    }
+    $('routineName').textContent = s.routineName || '';
+    try { await restoreMusic(s.music); } catch (err) { console.warn('Could not restore song', err); }
+    cursor = clamp(+s.cursor || 0, 0, totalSeconds());
+  }
+  restored = true;
+  saveState();
+}
+
+window.addEventListener('pagehide', saveState);
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveState(); });
+
+// Record your own move: open the studio on the same song, lined up with the pin
+trackCard.addEventListener('click', (e) => {
+  e.preventDefault();
+  if (routinePlaying) pauseRoutine();
+  saveState();
+  const m = getMusicState();
+  let url = 'studio.html';
+  if (m) {
+    const at = m.position ?? (m.start + cursor);     // song playing? use exactly where it is
+    url += `?song=${encodeURIComponent(m.songId)}&at=${at.toFixed(2)}`;
+  }
+  location.href = url;
+});
+
 // ================= HELPERS + BUTTONS =================
 function danceName(id) { return allDances().find(d => d.id === id)?.name || id; }
 function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
@@ -1042,6 +1114,7 @@ renderRoutine();
 renderSettings();
 updatePlayButton();
 applyView();
+restoreLook();
 setupSongPicker($('songSelect'), $('bpmChip'), stopAll);
 animate();
 loadEverything();

@@ -189,7 +189,17 @@ async function loadSongList() {
     return;
   }
   songSelect.innerHTML = songs.map((s, i) => `<option value="${i}">${s.title} · ${s.artist}</option>`).join("");
-  await selectSong(0);
+
+  // Opened from the dance builder? Start on the same song, at the same spot.
+  const params = new URLSearchParams(location.search);
+  const fromApp = songs.findIndex((s) => s.id === params.get("song"));
+  const at = parseFloat(params.get("at"));
+  if (fromApp >= 0) {
+    songSelect.value = String(fromApp);
+    await selectSong(fromApp, Number.isFinite(at) ? at : null);
+  } else {
+    await selectSong(0);
+  }
 }
 
 async function getSong(meta, withBeats = true) {
@@ -232,14 +242,21 @@ async function detectBeatsCached(meta, buffer) {
   return result;
 }
 
-async function selectSong(index) {
+// atSeconds: optional spot in the song to start the move on (snaps to the nearest beat)
+async function selectSong(index, atSeconds = null) {
   stopSession();
   setSongControlsEnabled(false);
   bpmChip.textContent = "Loading…";
   await new Promise((r) => setTimeout(r, 30));
   song = await getSong(songs[index]);
-  startBeat = COUNT_IN_BEATS;
+  startBeat = atSeconds === null
+    ? COUNT_IN_BEATS
+    : Math.round((atSeconds - song.firstBeat) / secondsPerBeat());
   clampStartBeat();
+  if (atSeconds !== null) {
+    const t = beatTime(startBeat);
+    say(`Lined up with your routine at ${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`);
+  }
   buildPeaks();
   bpmChip.textContent = `${song.bpm} BPM`;
   setSongControlsEnabled(true);

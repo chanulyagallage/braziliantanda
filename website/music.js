@@ -36,23 +36,37 @@ function endTime() {
 // ==========================================================
 // onBeforeChange runs before anything new plays (app.js passes stopAll)
 let stopOthers = () => {};
+let selectEl = null;
+let chipEl = null;
+let songsReady = null;   // resolves once songs.json has loaded
 
 export async function setupSongPicker(select, chip, onBeforeChange = () => {}) {
   if (!select) return;
   stopOthers = onBeforeChange;
+  selectEl = select;
+  chipEl = chip;
+  let ready;
+  songsReady = new Promise((r) => (ready = r));
   setupTimeline();
 
   try {
     songs = await (await fetch("Music/songs.json")).json();
   } catch {
     console.warn("No Music/songs.json found");
+    ready();
     return;
   }
   select.innerHTML =
     '<option value="">No music</option>' +
     songs.map((s, i) => `<option value="${i}">${escapeHtml(s.title)} · ${escapeHtml(s.artist)}</option>`).join("");
 
-  select.addEventListener("change", async () => {
+  ready();
+  select.addEventListener("change", () => loadSelected());
+}
+
+// Loads whichever song the <select> is showing
+async function loadSelected() {
+    const select = selectEl, chip = chipEl;
     stopOthers();
     stopMusic();
     if (select.value === "") {
@@ -86,7 +100,34 @@ export async function setupSongPicker(select, chip, onBeforeChange = () => {}) {
       currentSong = null;
       showTimeline(false);
     }
-  });
+}
+
+// ---------- remembering the music between pages ----------
+// What app.js saves: which song, where the routine starts, how long, and
+// (if the song is playing right now) exactly where it is.
+export function getMusicState() {
+  if (!currentSong) return null;
+  return {
+    songId: currentSong.meta.id,
+    startBeat: currentSong.startBeat,
+    lengthBeats: currentSong.lengthBeats,
+    start: startTime(),             // song seconds where the routine starts
+    position: songPosition(),       // song seconds playing right now (or null)
+  };
+}
+
+// Puts a saved song choice back (used when coming back from the studio)
+export async function restoreMusic(state) {
+  if (!state || !selectEl || !songsReady) return;
+  await songsReady;
+  const index = songs.findIndex((s) => s.id === state.songId);
+  if (index < 0) return;
+  selectEl.value = String(index);
+  await loadSelected();
+  if (!currentSong || currentSong.meta.id !== state.songId) return;
+  if (Number.isFinite(state.startBeat)) currentSong.startBeat = Math.max(0, Math.round(state.startBeat));
+  currentSong.lengthBeats = Number.isFinite(state.lengthBeats) ? state.lengthBeats : null;
+  updateLengthButtons();
 }
 
 // ==========================================================
