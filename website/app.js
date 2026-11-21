@@ -163,7 +163,14 @@ async function loadEverything() {
   } catch (err) {
     console.warn('Could not load character', CHARACTER_FILE, err);
   }
-  for (const dance of DANCES) {
+  // Show the dancer straight away, then load the moves
+  if (model) document.getElementById('loading').textContent = '';
+
+  // Load all the dances at the same time, adding each to the list as it arrives
+  let done = 0;
+  setNowPlaying(`Loading moves… 0/${DANCES.length}`);
+  renderLibrary();
+  await Promise.all(DANCES.map(async (dance) => {
     try {
       const gltf = await loader.loadAsync(dance.file);
       if (!model && hasBody(gltf)) useAsGirl(gltf, dance.file);   // no body yet? borrow it from this file
@@ -172,13 +179,20 @@ async function loadEverything() {
     } catch (err) {
       console.warn('Could not load', dance.file, err);
     }
-  }
+    done++;
+    setNowPlaying(`Loading moves… ${done}/${DANCES.length}`);
+    renderLibrary();
+  }));
+  movesLoaded = true;
+
   if (!model) console.warn('None of the .glb files have her body - export character.glb in Object Mode');
   document.getElementById('loading').textContent =
     model ? '' : 'No body found – export character.glb in Object Mode.';
   await refreshRecorded();
   renderLibrary();
+  setNowPlaying('Ready');
 }
+let movesLoaded = false;
 
 // ================= RECORDED MOVES + MUSIC =================
 let recorded = [];   // moves recorded in studio.html
@@ -190,7 +204,10 @@ async function refreshRecorded() {
 }
 
 // Coming back from the studio? Pick up any new moves.
-window.addEventListener('focus', async () => { await refreshRecorded(); renderLibrary(); renderRoutine(); });
+window.addEventListener('focus', async () => {
+  if (!movesLoaded) return;   // still loading – loadEverything will do it
+  await refreshRecorded(); renderLibrary(); renderRoutine();
+});
 
 const allDances = () => [...DANCES, ...recorded];
 
@@ -326,7 +343,7 @@ function renderLibrary() {
       <div class="emoji">${d.emoji}</div>
       <div class="info">
         <div class="name">${d.name}</div>
-        <div class="desc">${ok ? d.desc : 'Not exported yet (' + d.file + ')'}</div>
+        <div class="desc">${ok ? d.desc : !movesLoaded ? 'Loading…' : 'Not exported yet (' + d.file + ')'}</div>
       </div>
       <button class="small" ${ok ? '' : 'disabled'}>+ Add</button>`;
     if (ok) {
