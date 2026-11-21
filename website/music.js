@@ -4,13 +4,14 @@
 // Uses these elements from index.html if they exist:
 //   #musicTimelineWrap  – shown once a song is picked
 //   #musicTimeline      – <canvas> waveform: click or drag to pick where the routine starts
-//   #previewBtn         – plays the song from the start point
-//   #musicInfo          – small text: start time and routine length
+//   #previewBtn         – plays the chosen part of the song
+//   #lengthControl      – buttons with data-length="fit" / "15" / "30" / "60"
+//   #musicInfo          – small text: the chosen time period
 
 const audioCtx = new AudioContext();
 let songs = [];
-let currentSong = null;   // { meta, buffer, bpm, firstBeat, peaks, startBeat }
-let music = null;         // { source, gain, t0, offset, preview }
+let currentSong = null;   // { meta, buffer, bpm, firstBeat, peaks, startBeat, lengthBeats }
+let music = null;         // { source, gain, t0, offset, end, preview }
 const cache = {};
 
 export const getCurrentSong = () => currentSong;
@@ -20,13 +21,23 @@ const spb = () => 60 / currentSong.bpm;
 const beatTime = (b) => currentSong.firstBeat + b * spb();
 const startTime = () => Math.max(0, beatTime(currentSong.startBeat));
 
+// The chosen time period. lengthBeats = null means "fit the routine".
+function routineSeconds() {
+  try { return window.tanda ? window.tanda.seconds() : 0; } catch { return 0; }
+}
+function endTime() {
+  const s = currentSong;
+  const seconds = s.lengthBeats === null ? routineSeconds() : s.lengthBeats * spb();
+  return Math.min(s.buffer.duration, startTime() + seconds);
+}
+
 // ==========================================================
 // SONG PICKER
 // ==========================================================
 // onBeforeChange runs before anything new plays (app.js passes stopAll)
-let stopOthers = () => { };
+let stopOthers = () => {};
 
-export async function setupSongPicker(select, chip, onBeforeChange = () => { }) {
+export async function setupSongPicker(select, chip, onBeforeChange = () => {}) {
   if (!select) return;
   stopOthers = onBeforeChange;
   setupTimeline();
@@ -63,11 +74,12 @@ export async function setupSongPicker(select, chip, onBeforeChange = () => { }) 
           bpm = bpm || found.bpm;
           firstBeat = firstBeat ?? found.firstBeat;
         }
-        cache[meta.id] = { meta, buffer, bpm, firstBeat, peaks: null, startBeat: 0 };
+        cache[meta.id] = { meta, buffer, bpm, firstBeat, peaks: null, startBeat: 0, lengthBeats: null };
       }
       currentSong = cache[meta.id];
       chip.textContent = `${currentSong.bpm} BPM`;
       showTimeline(true);
+      updateLengthButtons();
     } catch (err) {
       console.warn("Could not load song", meta.file, err);
       chip.textContent = "Couldn't load song";
@@ -80,14 +92,21 @@ export async function setupSongPicker(select, chip, onBeforeChange = () => { }) 
 // ==========================================================
 // PLAYBACK
 // ==========================================================
-function play(offset, preview) {
+// Plays from `offset` to `end` (song seconds), fading out over the last second
+function play(offset, end, preview) {
   const source = audioCtx.createBufferSource();
   const gain = audioCtx.createGain();
   source.buffer = currentSong.buffer;
   source.connect(gain).connect(audioCtx.destination);
   const t0 = audioCtx.currentTime + 0.1;
   source.start(t0, offset);
-  music = { source, gain, t0, offset, preview };
+  if (end > offset) {
+    const stopAt = t0 + (end - offset);
+    gain.gain.setValueAtTime(1, Math.max(t0, stopAt - 1));
+    gain.gain.linearRampToValueAtTime(0, stopAt);
+    source.stop(stopAt + 0.05);
+  }
+  music = { source, gain, t0, offset, end, preview };
   source.onended = () => { if (music && music.source === source) { music = null; updatePreviewButton(); } };
   updatePreviewButton();
   return t0;
@@ -99,7 +118,7 @@ export async function startMusic() {
   stopMusic();
   if (!currentSong) return 0;
   await audioCtx.resume();
-  const t0 = play(startTime(), false);
+  const t0 = play(startTime(), endTime(), false);
   if (window.tanda) window.tanda.audio = { context: audioCtx, node: music.gain }; // for export.js
   return (t0 - audioCtx.currentTime) * 1000;
 }
@@ -111,7 +130,7 @@ export function stopMusic(fadeSeconds = 0) {
   const now = audioCtx.currentTime;
   gain.gain.setValueAtTime(gain.gain.value, now);
   gain.gain.linearRampToValueAtTime(0, now + fadeSeconds + 0.05);
-  try { source.stop(now + fadeSeconds + 0.1); } catch { }
+  try { source.stop(now + fadeSeconds + 0.1); } catch {}
   updatePreviewButton();
 }
 
@@ -119,6 +138,19 @@ export function stopMusic(fadeSeconds = 0) {
 function songPosition() {
   if (!music) return null;
   return music.offset + Math.max(0, audioCtx.currentTime - music.t0);
+}
+
+// For app.js: has the chosen time period run out?
+export function musicTimeUp() {
+  if (!music || music.preview) return false;
+  return music.offset + (audioCtx.currentTime - music.t0) >= music.end - 0.05;
+}
+
+// For app.js: should the routine go round again to fill the chosen period?
+// (Only when a fixed length is picked and there's time left.)
+export function keepDancing() {
+  if (!music || music.preview || !currentSong || currentSong.lengthBeats === null) return false;
+  return music.end - (music.offset + (audioCtx.currentTime - music.t0)) > 0.5;
 }
 
 // How much to speed a dance up or down to match the song.
@@ -143,32 +175,62 @@ function setupTimeline() {
   if (!canvas) return;
   ctx = canvas.getContext("2d");
 
-  // Click or drag to move the start point (snaps to the beat).
+  // Click or drag to move the chosen part (snaps to the beat).
+  // Drag its right edge to change how long the music plays.
   // If the preview is playing, it jumps to where you let go.
-  let dragging = false;
-  const pick = (e) => {
+  let dragging = null; // "move" | "end"
+  const timeAt = (e) => {
     const rect = canvas.getBoundingClientRect();
-    const t = ((e.clientX - rect.left) / rect.width) * currentSong.buffer.duration;
-    const last = Math.floor((currentSong.buffer.duration - currentSong.firstBeat) / spb()) - 1;
-    currentSong.startBeat = Math.max(0, Math.min(last, Math.round((t - currentSong.firstBeat) / spb())));
+    return ((e.clientX - rect.left) / rect.width) * currentSong.buffer.duration;
+  };
+  const nearEndEdge = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const xEnd = rect.left + (endTime() / currentSong.buffer.duration) * rect.width;
+    return endTime() > startTime() && Math.abs(e.clientX - xEnd) < 10;
+  };
+  const lastBeat = () => Math.floor((currentSong.buffer.duration - currentSong.firstBeat) / spb()) - 1;
+  const pick = (e) => {
+    const beat = Math.round((timeAt(e) - currentSong.firstBeat) / spb());
+    if (dragging === "end") {
+      currentSong.lengthBeats = Math.max(1, Math.min(lastBeat() - currentSong.startBeat, beat - currentSong.startBeat));
+      updateLengthButtons();
+    } else {
+      currentSong.startBeat = Math.max(0, Math.min(lastBeat(), beat));
+    }
   };
   canvas.addEventListener("pointerdown", (e) => {
     if (!currentSong) return;
-    dragging = true;
+    dragging = nearEndEdge(e) ? "end" : "move";
     canvas.setPointerCapture(e.pointerId);
     pick(e);
   });
-  canvas.addEventListener("pointermove", (e) => dragging && pick(e));
+  canvas.addEventListener("pointermove", (e) => {
+    if (!currentSong) return;
+    if (dragging) pick(e);
+    else canvas.style.cursor = nearEndEdge(e) ? "ew-resize" : "pointer";
+  });
   canvas.addEventListener("pointerup", () => {
     if (!dragging) return;
-    dragging = false;
+    dragging = null;
     if (music) {                     // scrub: keep listening from the new spot
       const wasPreview = music.preview;
       stopOthers();
       stopMusic();
-      if (wasPreview) play(startTime(), true);
+      if (wasPreview) playPreview();
     }
   });
+
+  // Length buttons: Fit routine / 15s / 30s / 60s
+  const lengths = $("lengthControl");
+  if (lengths) {
+    lengths.addEventListener("click", (e) => {
+      const btn = e.target.closest("button");
+      if (!btn || !currentSong) return;
+      const value = btn.dataset.length;
+      currentSong.lengthBeats = value === "fit" ? null : Math.max(1, Math.round(Number(value) / spb()));
+      updateLengthButtons();
+    });
+  }
 
   const btn = $("previewBtn");
   if (btn) {
@@ -178,12 +240,29 @@ function setupTimeline() {
       stopOthers();
       stopMusic();
       await audioCtx.resume();
-      play(startTime(), true);
+      playPreview();
     });
   }
 
   window.addEventListener("resize", () => currentSong && buildPeaks());
   requestAnimationFrame(drawLoop);
+}
+
+// Preview plays the chosen part, or to the end of the song if nothing's chosen yet
+function playPreview() {
+  const end = endTime() > startTime() ? endTime() : currentSong.buffer.duration;
+  play(startTime(), end, true);
+}
+
+function updateLengthButtons() {
+  const lengths = $("lengthControl");
+  if (!lengths || !currentSong) return;
+  const L = currentSong.lengthBeats;
+  for (const b of lengths.children) {
+    const v = b.dataset.length;
+    const active = v === "fit" ? L === null : L !== null && Math.round(Number(v) / spb()) === L;
+    b.classList.toggle("active", active);
+  }
 }
 
 function showTimeline(on) {
@@ -223,17 +302,16 @@ function drawLoop() {
   const duration = currentSong.buffer.duration;
   const toX = (t) => (t / duration) * w;
 
-  // How much of the song the routine will use
-  let routineSeconds = 0;
-  try { routineSeconds = window.tanda ? window.tanda.seconds() : 0; } catch { }
+  // The chosen part of the song
   const start = startTime();
-  const end = Math.min(duration, start + routineSeconds);
+  const end = endTime();
+  const hasRange = end > start;
   const x0 = toX(start);
   const x1 = toX(end);
 
   ctx.clearRect(0, 0, w, h);
 
-  if (routineSeconds > 0) {
+  if (hasRange) {
     ctx.fillStyle = "rgba(255, 79, 163, 0.22)";
     ctx.fillRect(x0, 0, x1 - x0, h);
   }
@@ -245,14 +323,18 @@ function drawLoop() {
   // Waveform
   const mid = h / 2;
   for (let x = 0; x < w; x++) {
-    ctx.fillStyle = routineSeconds > 0 && x >= x0 && x < x1 ? "#ff7ab8" : "#5a4f73";
+    ctx.fillStyle = hasRange && x >= x0 && x < x1 ? "#ff7ab8" : "#5a4f73";
     const bar = Math.max(1, currentSong.peaks[x] * h * 0.42);
     ctx.fillRect(x, mid - bar, 1, bar * 2);
   }
 
-  // Start marker
+  // Start marker, and a grab handle on the end edge
   ctx.fillStyle = "#ff4fa3";
   ctx.fillRect(x0 - dpr, 0, 2 * dpr, h);
+  if (hasRange) {
+    ctx.fillRect(x1 - dpr, 0, 2 * dpr, h);
+    ctx.fillRect(x1 - 3 * dpr, h / 2 - 10 * dpr, 6 * dpr, 20 * dpr);
+  }
 
   // Playhead
   const pos = songPosition();
@@ -263,9 +345,11 @@ function drawLoop() {
 
   const info = $("musicInfo");
   if (info) {
-    const text = routineSeconds > 0
-      ? `Starts at ${fmt(start)} · routine ends at ${fmt(end)}`
-      : `Starts at ${fmt(start)} · add moves to see how much of the song you'll use`;
+    const fit = currentSong.lengthBeats === null;
+    const text = !hasRange
+      ? `Starts at ${fmt(start)} · add moves or pick a length`
+      : `${fmt(start)} → ${fmt(end)} · ${Math.round(end - start)}s` +
+        (fit ? " (fits your routine)" : routineSeconds() > 0 && routineSeconds() < end - start - 0.5 ? " (routine repeats to fill it)" : "");
     if (info.textContent !== text) info.textContent = text;
   }
 }
@@ -283,7 +367,7 @@ async function detectBeatsCached(meta, buffer) {
   try {
     const saved = JSON.parse(localStorage.getItem(key));
     if (saved) return saved;
-  } catch { }
+  } catch {}
   const mono = new Float32Array(buffer.length);
   for (let c = 0; c < buffer.numberOfChannels; c++) {
     const d = buffer.getChannelData(c);
@@ -295,7 +379,7 @@ async function detectBeatsCached(meta, buffer) {
     worker.onerror = (e) => { reject(e); worker.terminate(); };
     worker.postMessage({ samples: mono, sampleRate: buffer.sampleRate }, [mono.buffer]);
   });
-  try { localStorage.setItem(key, JSON.stringify(result)); } catch { }
+  try { localStorage.setItem(key, JSON.stringify(result)); } catch {}
   return result;
 }
 

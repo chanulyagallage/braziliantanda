@@ -4,7 +4,7 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createRetargeter } from './retarget.js';
 import { loadRecordedMoves } from './recorded-moves.js';
-import { setupSongPicker, startMusic, stopMusic, tempoFactor } from './music.js';
+import { setupSongPicker, startMusic, stopMusic, tempoFactor, musicTimeUp, keepDancing } from './music.js';
 
 // ================= YOUR DANCES =================
 // Add a line here for every new dance. "id" must match the action name in Blender.
@@ -281,13 +281,16 @@ async function playRoutine() {
   const token = ++playToken;
   const msToFirstBeat = await startMusic();               // start the song...
   await new Promise((r) => setTimeout(r, msToFirstBeat)); // ...and wait for its first beat
-  for (let i = 0; i < routine.length; i++) {
-    if (token !== playToken) return;
-    const step = routine[i];
-    highlightStep(i);
-    setNowPlaying(`Now: <b>${danceName(step.id)}</b> (${i + 1}/${routine.length})`);
-    await playClip(step.id, { speed: effectiveSpeed(step), repeats: step.repeats });
-  }
+  do {                                                    // repeat to fill the chosen music length
+    for (let i = 0; i < routine.length; i++) {
+      if (token !== playToken) return;
+      if (musicTimeUp()) break;                           // music's chosen time is over
+      const step = routine[i];
+      highlightStep(i);
+      setNowPlaying(`Now: <b>${danceName(step.id)}</b> (${i + 1}/${routine.length})`);
+      await playClip(step.id, { speed: effectiveSpeed(step), repeats: step.repeats });
+    }
+  } while (token === playToken && keepDancing());
   if (token === playToken) {
     highlightStep(-1);
     setNowPlaying('Routine finished 🎉');

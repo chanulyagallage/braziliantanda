@@ -36,6 +36,13 @@
         <canvas id="musicTimeline" title="Click or drag to choose where your routine starts"></canvas>
         <div class="music-row">
           <button id="previewBtn" class="small">▶ Preview</button>
+          <span class="music-label">Length</span>
+          <div class="seg" id="lengthControl">
+            <button data-length="fit" class="active" title="Music lasts as long as your routine">Fit routine</button>
+            <button data-length="15">15s</button>
+            <button data-length="30">30s</button>
+            <button data-length="60">60s</button>
+          </div>
           <span id="musicInfo" class="music-info"></span>
         </div>
       </div>
