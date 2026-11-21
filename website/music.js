@@ -114,11 +114,15 @@ function play(offset, end, preview) {
 
 // Starts the song at the chosen start point (used by Play routine).
 // Returns how many milliseconds until the dancing should begin.
-export async function startMusic() {
+// offset = seconds into the routine (when playing from the timeline pin).
+export async function startMusic(offset = 0) {
   stopMusic();
   if (!currentSong) return 0;
   await audioCtx.resume();
-  const t0 = play(startTime(), endTime(), false);
+  const from = startTime() + Math.max(0, offset);
+  const end = endTime();
+  if (end > startTime() && from >= end - 0.05) return 0;   // pin is past the chosen part of the song
+  const t0 = play(from, end, false);
   if (window.tanda) window.tanda.audio = { context: audioCtx, node: music.gain }; // for export.js
   return (t0 - audioCtx.currentTime) * 1000;
 }

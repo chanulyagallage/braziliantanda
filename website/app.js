@@ -304,6 +304,10 @@ const dock = $('dock');
 const trackCard = $('trackCard');
 const topbar = document.querySelector('.topbar');
 
+// Phones: the panel opens over the dancer instead of beside her
+const phoneQuery = window.matchMedia('(max-width: 700px), (max-height: 520px) and (orientation: landscape)');
+const isPhone = () => phoneQuery.matches;
+
 let zoom = 1;
 let exporting = false;          // while exporting, frame her in the middle of the whole video
 const view = { x: 0, y: 0, dist: 0 };
@@ -315,7 +319,11 @@ function freeArea(W, H) {
   const d = dock.getBoundingClientRect();
   const top = topbar.getBoundingClientRect().bottom + 8;
   let left = p.right, right = t.left;
-  if (right - left < 200) { left = 0; right = W; }          // very small screens: just use the middle
+  if (isPhone()) {                                          // only the icon strip sits beside her
+    left = sidePanel.querySelector('.rail').getBoundingClientRect().right;
+    right = W;
+  }
+  if (right - left < 160) { left = 0; right = W; }          // very small screens: just use the middle
   const bottom = Math.max(top + 150, d.top);
   return { left, right, top, bottom };
 }
@@ -355,7 +363,7 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.1);
   if (mixer) mixer.update(dt);
   updateCamera(dt);
-  updatePlayhead();
+  updatePin();
   renderer.render(scene, camera);
 }
 
@@ -401,24 +409,31 @@ function stepSeconds(step) {
 // ================= SHARE WITH export.js =================
 window.tanda = {
   get routine() { return routine; },     // always the latest routine, even after the AI replaces it
-  play: () => { stopAll(); return playRoutine(); },
+  play: () => { stopAll(); return playRoutine(0); },
   seconds: () => routine.reduce((t, s) => t + stepSeconds(s), 0),
   // export.js calls this with true when recording starts and false when it ends
   setExportBackground: (on) => { exporting = !!on; },
 };
 
 // ================= PLAYING =================
+// The timeline works like a video editor: a pin marks where you are in the routine.
+// Play starts from the pin, dragging the pin scrubs through the dance.
 let current = null;     // currently playing AnimationAction
 let playToken = 0;      // bumps every time we start/stop, so old routines stop cleanly
-let playState = null;   // { step, start, dur } – drives the timeline playhead
+let playState = null;   // { step, segStart, offset, start, dur } – the step playing right now
+let routinePlaying = false;
+let cursor = 0;         // where the pin is, in seconds from the start of the routine
 
-function playClip(id, { speed = 1, repeats = 1 } = {}) {
+// offset = where to start inside the clip, in clip seconds (used when playing from the pin)
+function playClip(id, { speed = 1, repeats = 1, offset = 0 } = {}) {
   return new Promise((resolve) => {
     const clip = clips[id];
     if (!clip || !mixer) return resolve();
     const action = mixer.clipAction(clip);
+    const doneReps = Math.floor(offset / clip.duration);
     action.reset();
-    action.setLoop(THREE.LoopRepeat, repeats);
+    action.setLoop(THREE.LoopRepeat, Math.max(1, repeats - doneReps));
+    action.time = Math.max(0, offset - doneReps * clip.duration);
     action.clampWhenFinished = true;
     action.timeScale = speed;
     if (current && current !== action) {
@@ -437,28 +452,56 @@ function playClip(id, { speed = 1, repeats = 1 } = {}) {
   });
 }
 
-async function playRoutine() {
+// Start and length of every step, in seconds
+function segments() {
+  let t = 0;
+  return routine.map((step) => {
+    const dur = stepSeconds(step);
+    const seg = { step, start: t, dur };
+    t += dur;
+    return seg;
+  });
+}
+const totalSeconds = () => routine.reduce((t, s) => t + stepSeconds(s), 0);
+
+async function playRoutine(from = 0) {
   if (!routine.length) return setNowPlaying('Add some moves first');
   const token = ++playToken;
+  if (from >= totalSeconds() - 0.05) from = 0;          // pin at the end? start over
+  cursor = from;
+  routinePlaying = true;
+  updatePlayButton();
   setNowPlaying('Starting');
-  const msToFirstBeat = await startMusic();               // start the song...
-  await new Promise((r) => setTimeout(r, msToFirstBeat)); // ...and wait for its first beat
+  const msToFirstBeat = await startMusic(from);           // start the song (at the pin)...
+  await new Promise((r) => setTimeout(r, msToFirstBeat)); // ...and wait for the beat
+  let first = true;
   do {                                                    // repeat to fill the chosen music length
     const loopStart = performance.now();
     for (let i = 0; i < routine.length; i++) {
       if (token !== playToken) return;
       if (musicTimeUp()) break;                           // music's chosen time is over
-      const step = routine[i];
-      playState = { step, start: performance.now(), dur: stepSeconds(step) };
+      const seg = segments()[i];
+      let offset = 0;                                     // seconds into this step
+      if (first) {
+        if (seg.start + seg.dur <= from) continue;        // before the pin: skip
+        offset = Math.max(0, from - seg.start);
+        first = false;
+      }
+      const speed = effectiveSpeed(seg.step);
+      playState = { step: seg.step, segStart: seg.start, offset, start: performance.now(), dur: seg.dur };
       highlightPlaying();
-      setNowPlaying(`<b>${escapeHtml(danceName(step.id))}</b> &nbsp;${i + 1} of ${routine.length}`);
-      await playClip(step.id, { speed: effectiveSpeed(step), repeats: step.repeats });
+      setNowPlaying(`<b>${escapeHtml(danceName(seg.step.id))}</b> &nbsp;${i + 1} of ${routine.length}`);
+      await playClip(seg.step.id, { speed, repeats: seg.step.repeats, offset: offset * speed });
     }
+    first = false;
     if (performance.now() - loopStart < 50) break;        // safety: nothing actually played
   } while (token === playToken && keepDancing());
   if (token === playToken) {
     playState = null;
+    routinePlaying = false;
+    cursor = totalSeconds();                              // pin rests at the end, like a video
     highlightPlaying();
+    updatePlayButton();
     setNowPlaying('Routine finished');
     stopMusic(1.5);
   }
@@ -470,18 +513,55 @@ function stopAll() {
   if (mixer) mixer.stopAllAction();
   current = null;
   playState = null;
+  routinePlaying = false;
   highlightPlaying();
+  updatePlayButton();
   setNowPlaying('Stopped');
+}
+
+// Pause = stop, but keep her frozen where the pin is
+function pauseRoutine() {
+  stopAll();
+  showPoseAt(cursor);
+  setNowPlaying(`Paused at ${fmtTime(cursor)}`);
+}
+
+// Freeze the dancer at time t of the routine (used while scrubbing)
+function showPoseAt(t) {
+  if (!mixer) return;
+  const segs = segments();
+  const seg = segs.find((s) => t < s.start + s.dur) || segs[segs.length - 1];
+  if (!seg || !clips[seg.step.id]) return;
+  const clip = clips[seg.step.id];
+  const local = clamp(t - seg.start, 0, Math.max(0, seg.dur - 0.001)) * effectiveSpeed(seg.step);
+  mixer.stopAllAction();
+  const action = mixer.clipAction(clip);
+  action.reset();
+  action.play();
+  action.paused = true;
+  action.time = local % clip.duration;
+  current = action;
+  mixer.update(0);
+}
+
+const PLAY_ICON = '<svg viewBox="0 0 24 24" class="solid"><path d="M8 5.5v13l10.5-6.5z"/></svg>';
+const PAUSE_ICON = '<svg viewBox="0 0 24 24" class="solid"><rect x="6.5" y="5.5" width="4" height="13" rx="1"/><rect x="13.5" y="5.5" width="4" height="13" rx="1"/></svg>';
+function updatePlayButton() {
+  const b = $('playBtn');
+  b.innerHTML = routinePlaying ? PAUSE_ICON : PLAY_ICON;
+  b.title = routinePlaying ? 'Pause' : 'Play from the pin';
+  b.setAttribute('aria-label', b.title);
 }
 
 // ================= ROUTINE + TIMELINE =================
 let routine = [];      // [{ id, speed, repeats }]
 let selected = null;   // the step shown in Settings
 const blockEls = new Map();   // step -> its block on the timeline
+const track = $('track'), trackInner = $('trackInner'), blocksRow = $('blocks');
 
-function addStep(id) {
+function addStep(id, at = routine.length) {
   const step = { id, speed: 1, repeats: 1 };
-  routine.push(step);
+  routine.splice(at, 0, step);
   selected = step;
   renderRoutine();
   renderSettings();
@@ -496,40 +576,211 @@ function selectStep(step) {
 }
 
 function renderRoutine() {
-  const track = $('track');
-  track.querySelectorAll('.block').forEach((b) => b.remove());
+  blocksRow.querySelectorAll('.block').forEach((b) => b.remove());
   blockEls.clear();
-  let total = 0;
-  routine.forEach((step) => {
+  routine.forEach((step, i) => {
     const dur = stepSeconds(step);
-    total += dur;
-    const b = document.createElement('button');
-    b.className = 'block' + (step === selected ? ' selected' : '');
+    const b = document.createElement('div');
+    b.className = 'block btnlike' + (step === selected ? ' selected' : '');
+    b.setAttribute('role', 'button');
+    b.tabIndex = 0;
     b.style.flexGrow = Math.max(dur, 0.5);
     b.innerHTML = `
       <span class="b-name">${escapeHtml(danceName(step.id))}</span>
       <span class="b-meta">${step.repeats}x &middot; ${step.speed.toFixed(2)} speed &middot; ${dur.toFixed(1)} s</span>`;
-    b.addEventListener('click', () => selectStep(step));
-    track.appendChild(b);
+    b.addEventListener('click', () => { if (performance.now() > suppressClickUntil) selectStep(step); });
+    b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectStep(step); } });
+    b.addEventListener('pointerdown', (e) => armDrag(e, { kind: 'move', step, label: danceName(step.id), src: b }));
+    blocksRow.appendChild(b);
     blockEls.set(step, b);
   });
+  // make room for every block; scroll sideways if they don't fit
+  trackInner.style.width = `max(100%, ${routine.length * 92 + 8}px)`;
   $('trackEmpty').hidden = routine.length > 0;
-  $('routineTime').textContent = `${total.toFixed(1)} s`;
+  cursor = clamp(cursor, 0, totalSeconds());
   highlightPlaying();
+  updatePin();
 }
 
 function highlightPlaying() {
   for (const [step, el] of blockEls) el.classList.toggle('playing', !!playState && playState.step === step);
 }
 
-function updatePlayhead() {
-  const ph = $('playhead');
-  const el = playState && blockEls.get(playState.step);
-  if (!el) { ph.hidden = true; return; }
-  const frac = playState.dur > 0 ? Math.min(1, (performance.now() - playState.start) / 1000 / playState.dur) : 0;
-  ph.hidden = false;
-  ph.style.transform = `translateX(${el.offsetLeft + frac * el.offsetWidth}px)`;
+// ---------- time <-> position on the timeline ----------
+function timeToX(t) {
+  const segs = segments();
+  for (const seg of segs) {
+    const el = blockEls.get(seg.step);
+    if (el && t < seg.start + seg.dur) return el.offsetLeft + ((t - seg.start) / (seg.dur || 1)) * el.offsetWidth;
+  }
+  const last = segs.length && blockEls.get(segs[segs.length - 1].step);
+  return last ? last.offsetLeft + last.offsetWidth : 4;
 }
+function xToTime(x) {
+  for (const seg of segments()) {
+    const el = blockEls.get(seg.step);
+    if (!el) continue;
+    if (x < el.offsetLeft) return seg.start;
+    if (x <= el.offsetLeft + el.offsetWidth) return seg.start + ((x - el.offsetLeft) / el.offsetWidth) * seg.dur;
+  }
+  return totalSeconds();
+}
+function fmtTime(t) {
+  const m = Math.floor(t / 60), s = t - m * 60;
+  return `${m}:${s.toFixed(1).padStart(4, '0')}`;
+}
+
+// Runs every frame: move the pin (and follow it while playing)
+function updatePin() {
+  const pin = $('playhead');
+  if (!routine.length) { pin.hidden = true; $('routineTime').textContent = '0:00.0'; return; }
+  if (playState) cursor = Math.min(playState.segStart + playState.dur,
+    playState.segStart + playState.offset + (performance.now() - playState.start) / 1000);
+  const x = timeToX(cursor);
+  pin.hidden = false;
+  pin.style.transform = `translateX(${x}px)`;
+  $('routineTime').textContent = `${fmtTime(cursor)} / ${fmtTime(totalSeconds())}`;
+  if (routinePlaying && (x < track.scrollLeft || x > track.scrollLeft + track.clientWidth - 30)) {
+    track.scrollLeft = Math.max(0, x - 40);
+  }
+}
+
+// ---------- scrubbing: drag the pin or the ruler ----------
+let scrubbing = false;
+function scrubTo(e) {
+  const x = e.clientX - trackInner.getBoundingClientRect().left;
+  if (routinePlaying) stopAll();
+  cursor = clamp(xToTime(x), 0, totalSeconds());
+  showPoseAt(cursor);
+  setNowPlaying(`Paused at ${fmtTime(cursor)}`);
+  updatePin();
+}
+trackInner.addEventListener('pointerdown', (e) => {
+  if (!routine.length || !e.target.closest('.ruler, .playhead')) return;
+  scrubbing = true;
+  trackInner.setPointerCapture(e.pointerId);
+  scrubTo(e);
+});
+trackInner.addEventListener('pointermove', (e) => { if (scrubbing) scrubTo(e); });
+trackInner.addEventListener('pointerup', () => { scrubbing = false; });
+trackInner.addEventListener('pointercancel', () => { scrubbing = false; });
+
+// ---------- drag and drop: moves from the grid, or blocks to reorder ----------
+// Works with a mouse (press and move) and on phones (press and hold, then drag –
+// a quick swipe still scrolls like normal).
+const dropMarker = $('dropMarker');
+let drag = null;              // the drag in progress
+let suppressClickUntil = 0;   // a finished drag shouldn't also count as a click
+
+// x = pointer position on screen -> which gap between blocks it's nearest
+function dropIndex(clientX) {
+  const x = clientX - trackInner.getBoundingClientRect().left;
+  let i = 0;
+  for (const step of routine) {
+    const el = blockEls.get(step);
+    if (el && x < el.offsetLeft + el.offsetWidth / 2) break;
+    i++;
+  }
+  return i;
+}
+function markerX(i) {
+  if (!routine.length) return 4;
+  if (i < routine.length) return blockEls.get(routine[i]).offsetLeft - 3;
+  const last = blockEls.get(routine[routine.length - 1]);
+  return last.offsetLeft + last.offsetWidth + 1;
+}
+
+function armDrag(e, info) {
+  if (e.button > 0) return;
+  cancelDrag();
+  drag = { ...info, pid: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY,
+           touch: e.pointerType !== 'mouse', active: false, timer: 0 };
+  if (drag.touch) drag.timer = setTimeout(() => { if (drag && !drag.active) startDrag(); }, 280);
+}
+
+function startDrag() {
+  drag.active = true;
+  const g = document.createElement('div');
+  g.className = 'drag-ghost';
+  g.textContent = drag.label;
+  document.body.appendChild(g);
+  drag.ghost = g;
+  if (drag.src) drag.src.classList.add('drag-src');
+  document.body.classList.add('dragging');
+  if (drag.touch && navigator.vibrate) navigator.vibrate(10);
+  moveDrag();
+}
+
+function overTimeline() {
+  const r = $('tlMain').getBoundingClientRect();
+  return drag.x >= r.left - 10 && drag.x <= r.right + 10 && drag.y >= r.top - 40 && drag.y <= r.bottom + 30;
+}
+
+function moveDrag() {
+  drag.ghost.style.transform = `translate(${drag.x}px, ${drag.y}px)`;
+  const over = overTimeline();
+  track.classList.toggle('drag-over', over);
+  dropMarker.hidden = !over;
+  if (!over) return;
+  dropMarker.style.transform = `translateX(${markerX(dropIndex(drag.x))}px)`;
+  const r = track.getBoundingClientRect();              // near an edge? scroll the timeline
+  if (drag.x < r.left + 40) track.scrollLeft -= 14;
+  else if (drag.x > r.right - 40) track.scrollLeft += 14;
+}
+
+function finishDrag() {
+  const d = drag;
+  const dropped = d.active && overTimeline();
+  const at = dropped ? dropIndex(d.x) : 0;
+  if (d.active) suppressClickUntil = performance.now() + 400;
+  cancelDrag();
+  if (!dropped) return;
+  if (d.kind === 'add') {
+    const step = addStep(d.id, at);
+    if (!isPhone()) openTab('settings');
+    stopAll();
+    setNowPlaying(`Preview: <b>${escapeHtml(danceName(d.id))}</b>`);
+    playClip(d.id, { speed: effectiveSpeed(step), repeats: 1 });
+  } else {
+    const from = routine.indexOf(d.step);
+    if (from < 0) return;
+    let to = at;
+    routine.splice(from, 1);
+    if (from < to) to--;
+    routine.splice(to, 0, d.step);
+    selected = d.step;
+    renderRoutine();
+    renderSettings();
+  }
+}
+
+function cancelDrag() {
+  if (!drag) return;
+  clearTimeout(drag.timer);
+  if (drag.ghost) drag.ghost.remove();
+  if (drag.src) drag.src.classList.remove('drag-src');
+  document.body.classList.remove('dragging');
+  track.classList.remove('drag-over');
+  dropMarker.hidden = true;
+  drag = null;
+}
+
+window.addEventListener('pointermove', (e) => {
+  if (!drag || e.pointerId !== drag.pid) return;
+  drag.x = e.clientX; drag.y = e.clientY;
+  if (!drag.active) {
+    const moved = Math.hypot(drag.x - drag.x0, drag.y - drag.y0);
+    if (drag.touch) { if (moved > 8) cancelDrag(); return; }   // finger moved before the hold: it's a scroll
+    if (moved < 6) return;
+    startDrag();
+  }
+  moveDrag();
+});
+window.addEventListener('pointerup', (e) => { if (drag && e.pointerId === drag.pid) finishDrag(); });
+window.addEventListener('pointercancel', (e) => { if (drag && e.pointerId === drag.pid) cancelDrag(); });
+window.addEventListener('touchmove', (e) => { if (drag && drag.active) e.preventDefault(); }, { passive: false });
+window.addEventListener('contextmenu', (e) => { if (drag) e.preventDefault(); });
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') cancelDrag(); });
 
 // ================= MOVE BUTTONS =================
 function renderLibrary() {
@@ -537,23 +788,29 @@ function renderLibrary() {
   lib.innerHTML = '';
   for (const d of allDances()) {
     const ok = !!clips[d.id];
-    const b = document.createElement('button');
-    b.className = 'tile';
-    b.disabled = !ok;
-    b.title = ok ? `Add ${d.name} to the routine` : !movesLoaded ? 'Loading' : `Not exported yet (${d.file || d.id})`;
+    const b = document.createElement('div');
+    b.className = 'tile btnlike' + (ok ? '' : ' disabled');
+    b.setAttribute('role', 'button');
+    b.setAttribute('aria-disabled', String(!ok));
+    b.title = ok ? `Tap to add, or drag onto the timeline` : !movesLoaded ? 'Loading' : `Not exported yet (${d.file || d.id})`;
     const meta = ok ? `${clips[d.id].duration.toFixed(1)} s${d.recorded ? ' &middot; recorded' : ''}` : !movesLoaded ? 'Loading' : 'Not available';
     b.innerHTML = `
       <span class="tile-name">${escapeHtml(d.name)}</span>
       <span class="tile-meta">${meta}</span>
       <span class="tile-add">${ICON.plus}</span>`;
     if (ok) {
-      b.addEventListener('click', () => {
+      b.tabIndex = 0;
+      b.addEventListener('pointerdown', (e) => armDrag(e, { kind: 'add', id: d.id, label: d.name }));
+      const add = () => {
+        if (performance.now() < suppressClickUntil) return;   // that was a drag, not a tap
         const step = addStep(d.id);
-        openTab('settings');
+        if (!isPhone()) openTab('settings');
         stopAll();
         setNowPlaying(`Preview: <b>${escapeHtml(d.name)}</b>`);
         playClip(d.id, { speed: effectiveSpeed(step), repeats: 1 });
-      });
+      };
+      b.addEventListener('click', add);
+      b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); add(); } });
     }
     lib.appendChild(b);
   }
@@ -663,6 +920,7 @@ document.querySelectorAll('.rail-btn[data-tab]').forEach((b) => b.addEventListen
   updateTabs();
 }));
 $('closeBtn').addEventListener('click', () => { sidePanel.classList.toggle('collapsed'); updateTabs(); });
+if (isPhone()) sidePanel.classList.add('collapsed');
 updateTabs();
 
 // ================= AI CHOREOGRAPHER (chat) =================
@@ -741,7 +999,7 @@ async function askAI() {
       await pickAiSong(data.music);   // selects the song in the song picker
     }
     stopAll();
-    playRoutine();
+    playRoutine(0);
   } catch (err) {
     const down = err instanceof TypeError || /pattern|Failed to fetch|Load failed|JSON/i.test(err.message);
     reply.className = 'msg ai error';
@@ -762,10 +1020,17 @@ function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 function setNowPlaying(html) { $('nowPlaying').innerHTML = html; }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
-$('playBtn').addEventListener('click', () => { stopAll(); playRoutine(); });
-$('stopBtn').addEventListener('click', stopAll);
+// Play / pause from the pin. Stop sends the pin back to the start.
+$('playBtn').addEventListener('click', () => {
+  if (routinePlaying) return pauseRoutine();
+  const from = cursor;
+  stopAll();
+  playRoutine(from);
+});
+$('stopBtn').addEventListener('click', () => { stopAll(); cursor = 0; updatePin(); });
 $('clearBtn').addEventListener('click', () => {
   stopAll();
+  cursor = 0;
   routine = [];
   selected = null;
   renderRoutine();
@@ -775,6 +1040,7 @@ $('clearBtn').addEventListener('click', () => {
 
 renderRoutine();
 renderSettings();
+updatePlayButton();
 applyView();
 setupSongPicker($('songSelect'), $('bpmChip'), stopAll);
 animate();
