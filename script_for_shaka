@@ -1,0 +1,333 @@
+import bpy
+from math import radians, acos
+from mathutils import Vector, Quaternion, Matrix
+
+FPS = 30
+NEW_ACTION_NAME = "shakawalk"
+
+def find_rig():
+    ob = bpy.context.active_object
+    if ob and ob.type == 'ARMATURE':
+        return ob
+    if "Human.rig" in bpy.data.objects and bpy.data.objects["Human.rig"].type == 'ARMATURE':
+        return bpy.data.objects["Human.rig"]
+    for ob in bpy.context.scene.objects:
+        if ob.type == 'ARMATURE':
+            return ob
+    raise RuntimeError("No armature found - select your Human.rig and run again.")
+
+rig = find_rig()
+pbones = rig.pose.bones
+
+ROLES = {
+    "spine_low": ["spine04", "spine_01"],
+    "chest":     ["spine02", "spine_03"],
+    "head":      ["head"],
+    "upper_L":   ["upperarm01.L", "upperarm02.L", "upperarm_l"],
+    "upper_R":   ["upperarm01.R", "upperarm02.R", "upperarm_r"],
+    "fore_L":    ["lowerarm01.L", "lowerarm02.L", "lowerarm_l"],
+    "fore_R":    ["lowerarm01.R", "lowerarm02.R", "lowerarm_r"],
+    "wrist_L":   ["wrist.L", "hand_l"],
+    "wrist_R":   ["wrist.R", "hand_r"],
+    "thigh_L":   ["upperleg01.L", "upperleg02.L", "thigh_l"],
+    "thigh_R":   ["upperleg01.R", "upperleg02.R", "thigh_r"],
+    "shin_L":    ["lowerleg01.L", "lowerleg02.L", "calf_l"],
+    "shin_R":    ["lowerleg01.R", "lowerleg02.R", "calf_r"],
+    "foot_L":    ["foot.L", "foot_l"],
+    "foot_R":    ["foot.R", "foot_r"],
+}
+role_bones = {r: [n for n in names if n in pbones] for r, names in ROLES.items()}
+missing = [r for r, b in role_bones.items() if not b]
+if missing:
+    print("WARNING - couldn't find bones for:", missing)
+    print("Bones in this rig:", [b.name for b in pbones])
+
+world_to_arm = rig.matrix_world.to_3x3().normalized().inverted()
+
+def A(x, y, z):
+    return (world_to_arm @ Vector((x, y, z))).normalized()
+
+def rot(axis, deg):
+    ax = {"X": Vector((1, 0, 0)), "Y": Vector((0, 1, 0)), "Z": Vector((0, 0, 1))}[axis]
+    return Quaternion(ax, radians(deg))
+
+FWD = A(0, -1, 0)
+UPV = A(0, 0, 1)
+
+# leg measurements from her rest pose
+def head_of(role):
+    return pbones[role_bones[role][0]].bone.head_local.copy()
+
+LEG = {}
+for s in "LR":
+    hip, knee, ankle = head_of("thigh_" + s), head_of("shin_" + s), head_of("foot_" + s)
+    LEG[s] = {"hip": hip, "ankle": ankle,
+              "Lt": (knee - hip).length, "Ls": (ankle - knee).length}
+LEG_LEN = (LEG["L"]["Lt"] + LEG["L"]["Ls"] + LEG["R"]["Lt"] + LEG["R"]["Ls"]) / 2
+CENTER = (LEG["L"]["ankle"] + LEG["R"]["ankle"]) / 2
+
+def foot_target(s, steps, lift):
+    a = LEG[s]["ankle"]
+    a = a + (CENTER - a) * FEET_IN
+    return a + FWD * (steps * STEP * LEG_LEN) + UPV * (lift * LEG_LEN)
+
+def legs(stepR, stepL, liftR=0, liftL=0, reach=0.97):
+    # steps: 0 = normal spot, 1 = one step forward.  lift = foot raised (mid-step)
+    tgt = {"R": foot_target("R", stepR, liftR), "L": foot_target("L", stepL, liftL)}
+    off = FWD * ((stepR + stepL) / 2 * STEP * LEG_LEN)
+    dz = 0.0
+    for _ in range(300):
+        o = off - UPV * dz
+        if all((tgt[s] - (LEG[s]["hip"] + o)).length <= reach * (LEG[s]["Lt"] + LEG[s]["Ls"]) for s in "LR"):
+            break
+        dz += 0.002 * LEG_LEN
+    d = {"_offset": off - UPV * dz}
+    for s in "LR":
+        d["thigh_" + s] = ("ik", tgt[s], LEG[s]["Lt"], LEG[s]["Ls"])
+        d["shin_" + s]  = ("toward", tgt[s])
+        d["foot_" + s]  = ("keep",)
+    return d
+
+UP, DOWN, FRONT_PALM, INWARD = (0, 0, 1), (0, 0, -1), (0, 1, 0), (-1, 0, 0)
+
+def arm(side, upper, fore, palm=UP, turn=0):
+    m = 1 if side == "L" else -1
+    R = rot("Z", turn)
+    def T(x, y, z):
+        v = R @ Vector((m * x, y, z))
+        return A(v.x, v.y, v.z)
+    p = T(*palm)
+    return {"upper_" + side: ("dir", T(*upper)),
+            "fore_" + side:  ("aim", T(*fore), p),
+            "wrist_" + side: ("aim", T(*fore), p)}
+
+def arm_relaxed(side, upper, fore):
+    m = 1 if side == "L" else -1
+    return {"upper_" + side: ("dir", A(m * upper[0], upper[1], upper[2])),
+            "fore_" + side:  ("dir", A(m * fore[0], fore[1], fore[2]))}
+
+def body(nod=0, turn=0, lean=0):
+    return {"spine_low": ("rot", rot("Z", turn * 0.4) @ rot("Y", lean * 0.4)),
+            "chest":     ("rot", rot("Z", turn * 0.4) @ rot("Y", lean * 0.6) @ rot("X", nod * 0.5)),
+            "head":      ("rot", rot("Z", turn * 0.2) @ rot("Y", -lean * 0.5) @ rot("X", nod))}
+
+def P(*ds):
+    out = {}
+    for d in ds:
+        out.update(d)
+    return out
+# +X = her left, -Y = forward, +Z = up   (arm numbers are for her LEFT arm)
+ARMS_DOWN  = ((0.15, 0.02, -0.99), (0.12, -0.08, -0.99))  # standing normally
+ARM_SIDE   = ((0.55, 0.05, -0.83), (0.30, -0.25, 0.92))   # elbow bent, shaka at shoulder height
+ARM_FRONT  = ((0.20, -0.55, -0.81), (0.05, -0.80, 0.60))  # elbow bent, shaka pushed out in front
+
+BPM        = 100     # steps per minute - lower = slower
+BEAT       = round(FPS * 60 / BPM)
+STEP       = 0.35    # step length (fraction of leg length)
+LIFT       = 0.12    # how high the foot lifts mid-step
+FEET_IN    = 0.3     # 0 = normal stance, bigger = feet closer together
+TURN       = 14      # degrees - shoulder twist toward the front arm
+SHAKE_DEG  = 25      # how far the shakas rock
+SHAKE_EVERY = 2      # frames per shake - smaller = faster shaking
+CURL       = 70      # finger curl for the shaka (index, middle, ring)
+SHAKA = {"thumb": 0, "index": CURL, "middle": CURL, "ring": CURL, "pinky": 0}
+
+def arms_up(front=None):
+    # front = "L" -> left arm out front (left shoulder forward), "R" -> right arm
+    if front == "L":
+        return P(arm("L", *ARM_FRONT, FRONT_PALM, -TURN), arm("R", *ARM_SIDE, FRONT_PALM, -TURN), body(turn=-TURN))
+    if front == "R":
+        return P(arm("R", *ARM_FRONT, FRONT_PALM, TURN), arm("L", *ARM_SIDE, FRONT_PALM, TURN), body(turn=TURN))
+    return P(arm("L", *ARM_SIDE, FRONT_PALM), arm("R", *ARM_SIDE, FRONT_PALM), body())
+
+def shaka(arms, legpose):
+    return P(arms, legpose, {"_curl": SHAKA})
+
+STAND = P(arm_relaxed("L", *ARMS_DOWN), arm_relaxed("R", *ARMS_DOWN), body(), legs(0, 0, reach=1.0))
+
+SECOND = 2      # how far the 2nd step goes (1 = level with the 1st step, 2 = a full step past it)
+
+def legs_only(legpose):
+    # mid-step: only the legs get keyed, so the arms swing across the whole step
+    return P(legpose, {"_legs_only": True})
+
+B, H = BEAT, BEAT // 2
+TIMELINE = [
+    (1,              STAND),
+    (1 + B,          shaka(arms_up(),    legs(0, 0))),                 # arms up into shakas
+    (1 + 2*B - H,    legs_only(legs(0.5, 0, liftR=LIFT))),
+    (1 + 2*B,        shaka(arms_up("L"), legs(1, 0))),                 # RIGHT foot lands + left arm out
+    (1 + 3*B - H,    legs_only(legs(1, SECOND / 2, liftL=LIFT))),
+    (1 + 3*B,        shaka(arms_up("R"), legs(1, SECOND))),            # LEFT foot lands + right arm out
+    (1 + 4*B - H,    legs_only(legs(1, SECOND / 2, liftL=LIFT))),
+    (1 + 4*B,        shaka(arms_up("R"), legs(1, 0))),                 # LEFT foot lands back + right arm out
+    (1 + 5*B - H,    legs_only(legs(0.5, 0, liftR=LIFT))),
+    (1 + 5*B,        shaka(arms_up("L"), legs(0, 0))),                 # RIGHT foot lands back + left arm out
+    (1 + 6*B,        shaka(arms_up(),    legs(0, 0))),
+    (1 + 7*B,        STAND),
+]
+SHAKE_FROM, SHAKE_TO = 1 + B, 1 + 6*B
+END_FRAME = 1 + 7*B
+
+def hierarchy(bones):
+    order = []
+    def walk(pb):
+        order.append(pb)
+        for c in pb.children:
+            walk(c)
+    for pb in bones:
+        if pb.parent is None:
+            walk(pb)
+    return order
+
+ORDER = hierarchy(pbones)
+ROOTS = [pb for pb in pbones if pb.parent is None]
+WRISTS = [pbones[n] for n in ("wrist.L", "wrist.R", "hand_l", "hand_r") if n in pbones]
+import re
+
+def finger_type(name):
+    n = name.lower()
+    if "metacarpal" in n or "palm" in n:
+        return None
+    for t in ("thumb", "index", "middle", "ring", "pinky"):
+        if t in n:
+            return t
+    m = re.search(r"finger_?(\d)", n)
+    if m:
+        return {"1": "thumb", "2": "index", "3": "middle", "4": "ring", "5": "pinky"}.get(m.group(1))
+    return None
+
+def palm_axis(pb, side):
+    r = pb.bone.matrix_local.to_3x3().normalized()
+    d = Vector(r.col[1])
+    inward = A(-1, 0, 0) if side == "L" else A(1, 0, 0)
+    n = (inward - d * d.dot(inward)).normalized()
+    return max([Vector((1,0,0)), Vector((-1,0,0)), Vector((0,0,1)), Vector((0,0,-1))],
+               key=lambda a: (r @ a).dot(n))
+
+def side_of(name):
+    return "L" if name.endswith((".L", "_l", "_L")) else "R"
+
+WRIST_NAMES = {pb.name for pb in WRISTS}
+
+def under_wrist(pb):
+    p = pb.parent
+    while p:
+        if p.name in WRIST_NAMES:
+            return pbones[p.name]
+        p = p.parent
+    return None
+
+FINGER_SIGN = 1     # if fingers bend backwards, change to -1
+
+found = [(pb.name, finger_type(pb.name)) for pb in pbones if finger_type(pb.name) and under_wrist(pb)]
+print("Shaka finger bones found:", len(found), found[:10])
+
+def apply_pose(pose):
+    for pb in pbones:
+        pb.rotation_mode = 'QUATERNION'
+        pb.rotation_quaternion = Quaternion()
+        pb.location = (0, 0, 0)
+        pb.scale = (1, 1, 1)
+    bpy.context.view_layer.update()
+    offset = pose.get("_offset", Vector((0, 0, 0)))
+    for pb in ROOTS:
+        M = pb.matrix.copy()
+        M.translation = M.translation + offset
+        pb.matrix = M
+    targets = {}
+    for role, spec in pose.items():
+        for name in role_bones.get(role, []):
+            targets[name] = spec
+    curl = pose.get("_curl")
+    ik_cache = {}
+    for pb in ORDER:
+        spec = targets.get(pb.name)
+        if not spec:
+            continue
+        bpy.context.view_layer.update()
+        M = pb.matrix.copy()
+        M3 = M.to_3x3().normalized()
+        head = M.translation
+        if spec[0] == "dir":
+            R3 = Vector(M3.col[1]).rotation_difference(spec[1]).to_matrix() @ M3
+        elif spec[0] == "rot":
+            R3 = (world_to_arm @ spec[1].to_matrix() @ world_to_arm.inverted()) @ M3
+        elif spec[0] == "ik":
+            key = id(spec)
+            if key not in ik_cache:
+                tgt, Lt, Ls = spec[1], spec[2], spec[3]
+                v = tgt - head
+                dist = min(v.length, 0.999 * (Lt + Ls))
+                c = (Lt * Lt + dist * dist - Ls * Ls) / (2 * Lt * dist)
+                alpha = acos(max(-1.0, min(1.0, c)))
+                vd = v.normalized()
+                axis = vd.cross(FWD)
+                ik_cache[key] = (Quaternion(axis.normalized(), alpha) @ vd) if axis.length > 1e-6 else vd
+            R3 = Vector(M3.col[1]).rotation_difference(ik_cache[key]).to_matrix() @ M3
+        elif spec[0] == "toward":
+            want = (spec[1] - head).normalized()
+            R3 = Vector(M3.col[1]).rotation_difference(want).to_matrix() @ M3
+        elif spec[0] == "keep":
+            R3 = pb.bone.matrix_local.to_3x3().normalized()
+        else:  # "aim"
+            y = spec[1].normalized()
+            p = (spec[2] - y * spec[2].dot(y)).normalized()
+            a = palm_axis(pb, side_of(pb.name))
+            yl = Vector((0, 1, 0))
+            L = Matrix((a, yl, a.cross(yl))).transposed()
+            W = Matrix((p, y, p.cross(y))).transposed()
+            R3 = W @ L.transposed()
+        newM = R3.to_4x4()
+        newM.translation = M.translation
+        pb.matrix = newM
+    # fingers: bend each joint on its own hinge (same way real knuckles bend)
+    if curl:
+        for pb in pbones:
+            t = finger_type(pb.name)
+            if t and under_wrist(pb):
+                pb.rotation_quaternion = Quaternion((1, 0, 0), radians(FINGER_SIGN * curl.get(t, 0)))
+    bpy.context.view_layer.update()
+
+# keep every other dance safe - just put it aside
+if rig.animation_data and rig.animation_data.action:
+    rig.animation_data.action.use_fake_user = True
+    rig.animation_data.action = None
+if NEW_ACTION_NAME in bpy.data.actions:
+    bpy.data.actions.remove(bpy.data.actions[NEW_ACTION_NAME])
+
+prev = {}
+for frame, pose in TIMELINE:
+    apply_pose(pose)
+    for pb in pbones:
+        q = pb.rotation_quaternion.copy()
+        if pb.name in prev and prev[pb.name].dot(q) < 0:
+            q.negate()
+        prev[pb.name] = q.copy()
+        pb.rotation_quaternion = q
+        pb.keyframe_insert("rotation_quaternion", frame=frame)
+    for pb in ROOTS:
+        pb.keyframe_insert("location", frame=frame)
+
+# shaka shake: rock both hands fast on top of the dance
+scene = bpy.context.scene
+frames = list(range(SHAKE_FROM, SHAKE_TO + 1, SHAKE_EVERY))
+base = {}
+for f in frames:
+    scene.frame_set(f)
+    base[f] = {pb.name: pb.rotation_quaternion.copy() for pb in WRISTS}
+for i, f in enumerate(frames):
+    ang = 0 if f in (SHAKE_FROM, SHAKE_TO) else (SHAKE_DEG if i % 2 else -SHAKE_DEG)
+    for pb in WRISTS:
+        pb.rotation_quaternion = base[f][pb.name] @ Quaternion((0, 1, 0), radians(ang))
+        pb.keyframe_insert("rotation_quaternion", frame=f)
+
+if rig.animation_data and rig.animation_data.action:
+    rig.animation_data.action.name = NEW_ACTION_NAME
+    rig.animation_data.action.use_fake_user = True
+
+scene.render.fps = FPS
+scene.frame_start = 1
+scene.frame_end = END_FRAME
+scene.frame_set(1)
+print("Done -", NEW_ACTION_NAME, "is now on", rig.name)

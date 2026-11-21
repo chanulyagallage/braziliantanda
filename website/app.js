@@ -56,8 +56,20 @@ let mixer = null;
 const clips = {};          // dance id -> AnimationClip
 const clock = new THREE.Clock();
 
+// The girl on the website comes from this file - every dance plays on her.
+const CHARACTER_FILE = 'Dances/Chanulya/kneebending.glb';
+
 async function loadEverything() {
   let model = null;
+  try {
+    const gltf = await loader.loadAsync(CHARACTER_FILE);
+    model = gltf.scene;
+    scene.add(model);
+    mixer = new THREE.AnimationMixer(model);
+    frameModel(model);
+  } catch (err) {
+    console.warn('Could not load character', CHARACTER_FILE, err);
+  }
   for (const dance of DANCES) {
     try {
       const gltf = await loader.loadAsync(dance.file);
@@ -67,9 +79,8 @@ async function loadEverything() {
         mixer = new THREE.AnimationMixer(model);
         frameModel(model);
       }
-      // a file can hold one dance or several - grab every animation by name
-      for (const anim of gltf.animations) clips[anim.name] = anim;
-      if (!clips[dance.id] && gltf.animations[0]) clips[dance.id] = gltf.animations[0];
+      const clip = gltf.animations.find(a => a.name === dance.id) || gltf.animations[0];
+      if (clip) clips[dance.id] = clip;
     } catch (err) {
       console.warn('Could not load', dance.file, err);
     }
