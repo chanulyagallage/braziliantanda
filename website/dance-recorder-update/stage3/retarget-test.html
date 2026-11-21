@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Move → Character</title>
+
+  <!-- Tells the browser where "three" lives (same names your app.js uses) -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <style>
+    :root {
+      --bg: #0e0e10;
+      --card: #18181b;
+      --line: #2a2a2e;
+      --text: #f4f4f5;
+      --muted: #8a8a93;
+      --pink: #ff2d55;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 28px 16px;
+    }
+
+    h1 { font-size: 22px; margin: 0 0 20px; letter-spacing: -0.02em; }
+
+    .card {
+      width: 760px;
+      max-width: 100%;
+      background: var(--card);
+      border-radius: 16px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+
+    .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .spacer { flex: 1; }
+
+    /* File pickers styled as buttons */
+    .file {
+      position: relative;
+      overflow: hidden;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      background: #222226;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 14px;
+      cursor: pointer;
+      max-width: 260px;
+    }
+
+    .file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .file span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file.loaded { border-color: #3a3a40; color: var(--text); }
+    .file .dot { width: 8px; height: 8px; border-radius: 50%; background: #444; flex: none; }
+    .file.loaded .dot { background: #34c759; }
+
+    button {
+      font: inherit;
+      font-size: 14px;
+      color: var(--text);
+      background: #222226;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 14px;
+      cursor: pointer;
+    }
+
+    button:hover:not(:disabled) { background: #2c2c31; }
+    button:disabled { opacity: 0.35; cursor: default; }
+
+    button.primary {
+      background: var(--pink);
+      border: none;
+      color: #fff;
+      font-weight: 600;
+      padding: 11px 26px;
+      border-radius: 999px;
+    }
+
+    .toggle.on { border-color: var(--pink); color: var(--pink); }
+
+    #stage {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      border-radius: 12px;
+      overflow: hidden;
+      background: radial-gradient(ellipse at 50% 30%, #26262c, #0b0b0d 70%);
+    }
+
+    #stage canvas { display: block; }
+
+    #camThumb {
+      position: absolute;
+      right: 12px;
+      bottom: 12px;
+      width: 160px;
+      border-radius: 8px;
+      transform: scaleX(-1);
+      display: none;
+      opacity: 0.85;
+    }
+
+    .actions { display: flex; justify-content: center; gap: 10px; margin-top: 16px; }
+
+    #status {
+      margin: 12px 0 0;
+      text-align: center;
+      font-size: 14px;
+      color: var(--muted);
+      min-height: 1.3em;
+    }
+
+    /* Bone report */
+    details { margin-top: 4px; font-size: 13px; color: var(--muted); }
+    summary { cursor: pointer; }
+    .report { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 4px 16px; margin-top: 10px; }
+    .report .miss { color: var(--pink); }
+    textarea {
+      width: 100%;
+      height: 90px;
+      margin-top: 10px;
+      background: #0b0b0d;
+      color: var(--muted);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 12px;
+      padding: 8px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Move → Character</h1>
+
+  <div class="card">
+    <div class="row">
+      <label class="file" id="glbLabel"><span class="dot"></span><span>Character .glb</span><input type="file" id="glbInput" accept=".glb,.gltf" /></label>
+      <label class="file" id="moveLabel"><span class="dot"></span><span>Move .json</span><input type="file" id="moveInput" accept=".json" /></label>
+      <div class="spacer"></div>
+      <button id="mirrorToggle" class="toggle on" title="Copy you like a mirror (live mode)">Mirror</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="stage">
+      <video id="camThumb" autoplay playsinline muted></video>
+    </div>
+
+    <div class="actions">
+      <button id="playButton" class="primary" disabled>▶ Play move</button>
+      <button id="liveButton" disabled>Live camera</button>
+    </div>
+
+    <p id="status">Pick a character and a recorded move</p>
+
+    <details id="reportBox" style="display:none">
+      <summary id="reportSummary"></summary>
+      <div class="report" id="report"></div>
+      <textarea id="boneList" readonly></textarea>
+    </details>
+  </div>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+    import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { createRetargeter, samplePoints, mirrorPoints } from "./retarget.js";
+
+    const $ = (id) => document.getElementById(id);
+    const stage = $("stage");
+    const playButton = $("playButton");
+    const liveButton = $("liveButton");
+    const mirrorToggle = $("mirrorToggle");
+    const camThumb = $("camThumb");
+    const say = (t) => ($("status").textContent = t);
+
+    // ==========================================================
+    // 3D SCENE
+    // ==========================================================
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(35, 4 / 3, 0.01, 100);
+    camera.position.set(0, 1.2, 4);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    stage.prepend(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 1, 0);
+    controls.enableDamping = true;
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x333344, 2));
+    const sun = new THREE.DirectionalLight(0xffffff, 2);
+    sun.position.set(2, 4, 3);
+    scene.add(sun);
+
+    const grid = new THREE.GridHelper(6, 12, 0x444450, 0x2a2a30);
+    scene.add(grid);
+
+    function resize() {
+      const w = stage.clientWidth;
+      const h = stage.clientHeight;
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener("resize", resize);
+    resize();
+
+    // ==========================================================
+    // LOADING
+    // ==========================================================
+    const draco = new DRACOLoader();
+    draco.setDecoderPath("https://www.gstatic.com/draco/versioned/decoders/1.5.7/");
+    const loader = new GLTFLoader();
+    loader.setDRACOLoader(draco);
+
+    let character = null;
+    let rig = null;
+    let move = null;
+    let songs = [];
+    const audioCtx = new AudioContext();
+
+    $("glbInput").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      stopAll();
+      say("Loading character…");
+      const url = URL.createObjectURL(file);
+      try {
+        const gltf = await loader.loadAsync(url);
+        if (character) scene.remove(character);
+        character = gltf.scene;
+        scene.add(character);
+        // Note: the GLB's own animations are ignored here – we drive the bones ourselves
+        rig = createRetargeter(character);
+        const hasMesh = frameCharacter();
+        showReport();
+        markLoaded("glbLabel", file.name);
+        updateButtons();
+        say(
+          rig.missing.length ? "Some bones weren't found. See the list below."
+          : hasMesh ? "Character ready"
+          : "No body in this file, showing the skeleton only"
+        );
+      } catch (err) {
+        say("Couldn't load that file: " + err.message);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    });
+
+    $("moveInput").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      stopAll();
+      try {
+        move = JSON.parse(await file.text());
+        if (!move.frames || !move.frames.length) throw new Error("no frames inside");
+        markLoaded("moveLabel", file.name);
+        updateButtons();
+        say(`Move loaded: ${move.beats} beats at ${move.bpm} BPM`);
+      } catch (err) {
+        say("That doesn't look like a recorded move: " + err.message);
+      }
+    });
+
+    function markLoaded(labelId, name) {
+      const label = $(labelId);
+      label.classList.add("loaded");
+      label.querySelector("span:nth-child(2)").textContent = name;
+    }
+
+    function updateButtons() {
+      playButton.disabled = !(rig && move);
+      liveButton.disabled = !rig;
+    }
+
+    let skeletonHelper = null;
+
+    // Lines from each joint to its parent, redrawn every frame
+    function makeSkeletonLines(joints) {
+      const set = new Set(joints);
+      const pairs = joints.filter((j) => set.has(j.parent)).map((j) => [j.parent, j]);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pairs.length * 6), 3));
+      const lines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0xff2d55, depthTest: false }));
+      lines.frustumCulled = false;
+      lines.pairs = pairs;
+      scene.add(lines);
+      return lines;
+    }
+
+    function updateSkeletonLines() {
+      if (!skeletonHelper) return;
+      const pos = skeletonHelper.geometry.attributes.position;
+      const v = new THREE.Vector3();
+      skeletonHelper.pairs.forEach(([a, b], i) => {
+        a.getWorldPosition(v); pos.setXYZ(i * 2, v.x, v.y, v.z);
+        b.getWorldPosition(v); pos.setXYZ(i * 2 + 1, v.x, v.y, v.z);
+      });
+      pos.needsUpdate = true;
+    }
+
+    // Point the camera at the character, whatever its size or units
+    function frameCharacter() {
+      let hasMesh = false;
+      character.traverse((o) => {
+        if (o.isMesh) {
+          hasMesh = true;
+          // Posed limbs can move outside the mesh's original bounds; never hide them
+          o.frustumCulled = false;
+        }
+      });
+
+      // No body mesh in the file? Show the skeleton so there's something to see
+      if (skeletonHelper) scene.remove(skeletonHelper);
+      skeletonHelper = null;
+      if (!hasMesh) skeletonHelper = makeSkeletonLines(rig.joints);
+
+      // Measure the character (fall back to the bones if there's no mesh)
+      const box = new THREE.Box3();
+      if (hasMesh) box.setFromObject(character);
+      if (box.isEmpty() || !isFinite(box.min.y) || !isFinite(box.max.y)) {
+        box.makeEmpty();
+        character.traverse((o) => o.isBone && box.expandByPoint(o.getWorldPosition(new THREE.Vector3())));
+      }
+      if (box.isEmpty()) box.set(new THREE.Vector3(-0.5, 0, -0.5), new THREE.Vector3(0.5, 1.8, 0.5));
+
+      const size = box.getSize(new THREE.Vector3());
+      const centre = box.getCenter(new THREE.Vector3());
+      const height = Math.max(size.x, size.y, size.z, 0.001);
+
+      // Characters can be exported in metres or centimetres, so scale the
+      // camera range and the floor grid to match
+      camera.near = height / 100;
+      camera.far = height * 100;
+      camera.updateProjectionMatrix();
+
+      const dist = (height / (2 * Math.tan((camera.fov * Math.PI) / 360))) * 1.6;
+      controls.target.copy(centre);
+      camera.position.set(centre.x, centre.y + height * 0.1, centre.z + dist);
+      controls.update();
+
+      grid.scale.setScalar(height / 1.8);
+      grid.position.set(centre.x, box.min.y, centre.z);
+
+      console.log("Character size:", size, "has mesh:", hasMesh);
+      return hasMesh;
+    }
+
+    function showReport() {
+      const found = rig.report.filter((r) => r.bone).length;
+      $("reportBox").style.display = "block";
+      $("reportSummary").textContent = `Bones matched: ${found} / ${rig.report.length}`;
+      $("report").innerHTML = rig.report
+        .map((r) => `<div class="${r.bone ? "" : "miss"}">${r.part}: ${r.bone ?? "not found"}</div>`)
+        .join("");
+      $("boneList").value = "All bones in this file:\n" + rig.allBoneNames.join(", ");
+      if (rig.missing.length) $("reportBox").open = true;
+    }
+
+    // Songs, so moves can play with their music
+    let songProblem = "";
+    fetch("music/songs.json")
+      .then((r) => r.json())
+      .then((s) => (songs = s))
+      .catch(() => (songProblem = "music/songs.json isn't next to this page"));
+    const songBuffers = {};
+    async function getSong(id) {
+      const meta = songs.find((s) => s.id === id);
+      if (!meta) {
+        songProblem ||= `"${id}" isn't in songs.json`;
+        return null;
+      }
+      if (!songBuffers[id]) {
+        const data = await (await fetch(meta.file)).arrayBuffer();
+        songBuffers[id] = await audioCtx.decodeAudioData(data);
+      }
+      return songBuffers[id];
+    }
+
+    // ==========================================================
+    // PLAYBACK OF A RECORDED MOVE
+    // ==========================================================
+    let mode = "idle"; // "idle" | "play" | "live"
+    let playStart = 0;
+    let songSource = null;
+
+    async function startPlay() {
+      stopAll();
+      await audioCtx.resume();
+      playStart = audioCtx.currentTime + 0.1;
+
+      const buffer = await getSong(move.songId);
+      if (buffer) {
+        songSource = audioCtx.createBufferSource();
+        songSource.buffer = buffer;
+        songSource.connect(audioCtx.destination);
+        songSource.loop = true;
+        songSource.loopStart = move.songStart;
+        songSource.loopEnd = move.songStart + move.duration;
+        songSource.start(playStart, move.songStart);
+      }
+      mode = "play";
+      playButton.textContent = "■ Stop";
+      say(buffer ? "Playing with music (loops)" : `Playing without music: ${songProblem}`);
+    }
+
+    playButton.addEventListener("click", () => (mode === "play" ? stopAll() : startPlay()));
+
+    function stopAll() {
+      if (songSource) {
+        try { songSource.stop(); } catch {}
+        songSource = null;
+      }
+      if (mode === "live") stopLive();
+      mode = "idle";
+      playButton.textContent = "▶ Play move";
+      liveButton.textContent = "Live camera";
+      if (rig) rig.resetPose();
+    }
+
+    // ==========================================================
+    // LIVE CAMERA (the character copies you)
+    // ==========================================================
+    let poseLandmarker = null;
+    let stream = null;
+    let lastVideoTime = -1;
+    let mirror = true;
+
+    mirrorToggle.addEventListener("click", () => {
+      mirror = !mirror;
+      mirrorToggle.classList.toggle("on", mirror);
+    });
+
+    async function startLive() {
+      stopAll();
+      liveButton.disabled = true;
+      try {
+        if (!poseLandmarker) {
+          say("Loading tracker…");
+          const { PoseLandmarker, FilesetResolver } = await import(
+            "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs"
+          );
+          const vision = await FilesetResolver.forVisionTasks(
+            "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+          );
+          poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath:
+                "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+              delegate: "GPU"
+            },
+            runningMode: "VIDEO",
+            numPoses: 1
+          });
+        }
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+        camThumb.srcObject = stream;
+        camThumb.style.display = "block";
+        mode = "live";
+        liveButton.textContent = "■ Stop camera";
+        say("Move around and the character copies you");
+      } catch (err) {
+        say("Couldn't start live mode: " + err.message);
+      } finally {
+        liveButton.disabled = false;
+      }
+    }
+
+    function stopLive() {
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      stream = null;
+      camThumb.style.display = "none";
+    }
+
+    liveButton.addEventListener("click", () => (mode === "live" ? stopAll() : startLive()));
+
+    // ==========================================================
+    // MAIN LOOP
+    // ==========================================================
+    function loop() {
+      requestAnimationFrame(loop); // keep drawing even if posing hits an error
+      try {
+        updatePose();
+      } catch (err) {
+        console.error(err);
+      }
+      updateSkeletonLines();
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    function updatePose() {
+      if (rig && mode === "play") {
+        const elapsed = Math.max(0, audioCtx.currentTime - playStart) % move.duration;
+        rig.applyPose(samplePoints(move, elapsed));
+      }
+
+      if (rig && mode === "live" && camThumb.readyState >= 2 && camThumb.currentTime !== lastVideoTime) {
+        lastVideoTime = camThumb.currentTime;
+        const result = poseLandmarker.detectForVideo(camThumb, performance.now());
+        if (result.worldLandmarks.length) {
+          let pts = result.worldLandmarks[0].map((p) => [p.x, p.y, p.z]);
+          if (mirror) pts = mirrorPoints(pts);
+          rig.applyPose(pts);
+        }
+      }
+    }
+    loop();
+  </script>
+</body>
+</html>
