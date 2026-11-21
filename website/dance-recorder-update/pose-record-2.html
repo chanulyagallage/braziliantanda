@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Record a Move</title>
+  <style>
+    :root {
+      --bg: #0e0e10;
+      --card: #18181b;
+      --line: #2a2a2e;
+      --text: #f4f4f5;
+      --muted: #8a8a93;
+      --pink: #ff2d55;
+      --yellow: #ffcc00;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 28px 16px;
+    }
+
+    h1 {
+      font-size: 22px;
+      margin: 0 0 20px;
+      letter-spacing: -0.02em;
+    }
+
+    .card {
+      width: 760px;
+      max-width: 100%;
+      background: var(--card);
+      border-radius: 16px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .spacer { flex: 1; }
+
+    /* ---------- Controls ---------- */
+    select {
+      appearance: none;
+      background: #222226 url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%238a8a93'/></svg>") no-repeat right 12px center;
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 34px 10px 14px;
+      font-size: 15px;
+      min-width: 200px;
+    }
+
+    button {
+      font: inherit;
+      font-size: 14px;
+      color: var(--text);
+      background: #222226;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 14px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    button:hover:not(:disabled) { background: #2c2c31; }
+    button:disabled { opacity: 0.35; cursor: default; }
+
+    .icon-btn {
+      width: 42px;
+      height: 42px;
+      padding: 0;
+      font-size: 16px;
+      border-radius: 50%;
+    }
+
+    .chip {
+      font-size: 13px;
+      color: var(--muted);
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+    }
+
+    .tiny {
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 8px;
+      color: var(--muted);
+    }
+
+    /* Segmented control (4 / 8 / 16 beats) */
+    .segmented {
+      display: inline-flex;
+      background: #222226;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 3px;
+    }
+
+    .segmented button {
+      border: none;
+      background: transparent;
+      padding: 6px 14px;
+      border-radius: 7px;
+      color: var(--muted);
+    }
+
+    .segmented button.active {
+      background: var(--pink);
+      color: #fff;
+    }
+
+    .toggle.on {
+      border-color: var(--pink);
+      color: var(--pink);
+    }
+
+    .label {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    /* ---------- Timeline ---------- */
+    #timeline {
+      display: block;
+      width: 100%;
+      height: 96px;
+      margin: 14px 0;
+      border-radius: 10px;
+      background: #0b0b0d;
+      cursor: pointer;
+    }
+
+    /* ---------- Camera ---------- */
+    .panels {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+    }
+
+    .stage {
+      position: relative;
+      flex: 1;
+      max-width: 724px;
+      aspect-ratio: 4 / 3;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .panels.split .stage { max-width: 356px; }
+
+    .stage video,
+    .stage canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+
+    .stage-label {
+      position: absolute;
+      bottom: 10px;
+      left: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    #placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 40px;
+    }
+
+    #bigText {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 120px;
+      font-weight: 700;
+      text-shadow: 0 0 30px rgba(0,0,0,0.8);
+      pointer-events: none;
+    }
+
+    #recBadge {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background: var(--pink);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 999px;
+      display: none;
+    }
+
+    #previewStage { display: none; }
+
+    /* ---------- Main action ---------- */
+    .actions {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    #mainButton {
+      background: var(--pink);
+      border: none;
+      color: #fff;
+      font-size: 16px;
+      font-weight: 600;
+      padding: 13px 32px;
+      border-radius: 999px;
+    }
+
+    #mainButton:hover:not(:disabled) { background: #ff4d6d; }
+
+    #status {
+      margin: 12px 0 0;
+      text-align: center;
+      font-size: 14px;
+      color: var(--muted);
+      min-height: 1.3em;
+    }
+
+    .admin { display: none !important; }
+    body.is-admin .admin { display: inline-flex !important; }
+  </style>
+</head>
+<body>
+  <h1>Record a move</h1>
+
+  <!-- ===== SONG ===== -->
+  <div class="card">
+    <div class="row">
+      <select id="songSelect"><option>Loading…</option></select>
+      <button id="playSongButton" class="icon-btn" title="Play song" disabled>▶</button>
+      <div class="spacer"></div>
+      <span id="bpmChip" class="chip">– BPM</span>
+      <button id="halfTempo" class="tiny" title="Tempo too fast? Halve it" disabled>½×</button>
+      <button id="doubleTempo" class="tiny" title="Tempo too slow? Double it" disabled>2×</button>
+    </div>
+
+    <canvas id="timeline" title="Click to choose where your move starts"></canvas>
+
+    <div class="row">
+      <span class="label">Length</span>
+      <div class="segmented" id="beatsControl">
+        <button data-beats="4">4</button>
+        <button data-beats="8" class="active">8</button>
+        <button data-beats="16">16</button>
+      </div>
+      <span class="label">beats</span>
+      <div class="spacer"></div>
+      <button id="clicksToggle" class="toggle" title="Play a click on every beat">Clicks</button>
+      <button id="practiseButton" disabled>Practise</button>
+    </div>
+
+    <!-- Admin tools: add ?admin to the address to see these -->
+    <div class="row admin" style="margin-top:12px">
+      <span class="label">Beat grid</span>
+      <button class="tiny" id="nudgeEarlier">◀ 10ms</button>
+      <button class="tiny" id="nudgeLater">10ms ▶</button>
+      <button class="tiny" id="copySettings">Copy for songs.json</button>
+    </div>
+  </div>
+
+  <!-- ===== CAMERA ===== -->
+  <div class="card">
+    <div class="panels" id="panels">
+      <div class="stage">
+        <video id="webcam" autoplay playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div id="placeholder">📷</div>
+        <div id="recBadge">● REC</div>
+        <div id="bigText"></div>
+      </div>
+      <div class="stage" id="previewStage">
+        <canvas id="preview"></canvas>
+        <span class="stage-label">Your move</span>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="mainButton" disabled>Loading…</button>
+      <button id="replayButton" style="display:none">▶ Replay</button>
+      <button id="downloadButton" style="display:none">Save</button>
+    </div>
+
+    <p id="status"></p>
+  </div>
+
+  <script type="module">
+    import {
+      PoseLandmarker,
+      FilesetResolver,
+      DrawingUtils
+    } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs";
+    import { detectBeats } from "./beat-detect.js";
+
+    const COUNT_IN_BEATS = 4;
+
+    if (new URLSearchParams(location.search).has("admin")) {
+      document.body.classList.add("is-admin");
+    }
+
+    // ---------- Page elements ----------
+    const $ = (id) => document.getElementById(id);
+    const songSelect = $("songSelect");
+    const playSongButton = $("playSongButton");
+    const bpmChip = $("bpmChip");
+    const halfTempo = $("halfTempo");
+    const doubleTempo = $("doubleTempo");
+    const timeline = $("timeline");
+    const timelineCtx = timeline.getContext("2d");
+    const beatsControl = $("beatsControl");
+    const clicksToggle = $("clicksToggle");
+    const practiseButton = $("practiseButton");
+
+    const panels = $("panels");
+    const video = $("webcam");
+    const overlay = $("overlay");
+    const overlayCtx = overlay.getContext("2d");
+    const placeholder = $("placeholder");
+    const previewStage = $("previewStage");
+    const preview = $("preview");
+    const previewCtx = preview.getContext("2d");
+    const bigText = $("bigText");
+    const recBadge = $("recBadge");
+    const mainButton = $("mainButton");
+    const replayButton = $("replayButton");
+    const downloadButton = $("downloadButton");
+    const statusText = $("status");
+
+    const overlayDraw = new DrawingUtils(overlayCtx);
+    const previewDraw = new DrawingUtils(previewCtx);
+
+    // ---------- State ----------
+    const audioCtx = new AudioContext(); // master clock for all timing
+    let poseLandmarker = null;
+    let cameraReady = false;
+    let lastVideoTime = -1;
+
+    let songs = [];
+    let song = null;            // { meta, buffer, bpm, firstBeat, peaks }
+    const songCache = {};
+    let startBeat = COUNT_IN_BEATS;
+    let beats = 8;              // move length
+    let clicksOn = false;
+
+    // type: "song" | "practise" | "record" | "replay"
+    let session = null;
+    let frames = [];
+    let missedFrames = 0;
+    let recordedMove = null;
+    let previewStart = 0;
+
+    // ---------- Helpers ----------
+    const secondsPerBeat = () => 60 / song.bpm;
+    const beatTime = (b) => song.firstBeat + b * secondsPerBeat();
+    const round = (n) => Math.round(n * 10000) / 10000;
+    const say = (text) => (statusText.textContent = text);
+
+    // ==========================================================
+    // SONGS
+    // ==========================================================
+
+    async function loadSongList() {
+      try {
+        songs = await (await fetch("music/songs.json")).json();
+      } catch (err) {
+        songSelect.innerHTML = "<option>No songs found</option>";
+        say("Couldn't load music/songs.json");
+        return;
+      }
+      songSelect.innerHTML = songs
+        .map((s, i) => `<option value="${i}">${s.title} · ${s.artist}</option>`)
+        .join("");
+      await selectSong(0);
+    }
+
+    async function selectSong(index) {
+      stopSession();
+      const meta = songs[index];
+      setSongControlsEnabled(false);
+
+      if (!songCache[meta.id]) {
+        bpmChip.textContent = "Loading…";
+        const data = await (await fetch(meta.file)).arrayBuffer();
+        const buffer = await audioCtx.decodeAudioData(data);
+        let { bpm, firstBeat } = meta;
+
+        if (!bpm || firstBeat === undefined) {
+          bpmChip.textContent = "Finding beat…";
+          await new Promise((r) => setTimeout(r, 30));
+          const detected = detectBeats(buffer);
+          bpm = bpm || detected.bpm;
+          firstBeat = firstBeat ?? detected.firstBeat;
+        }
+        songCache[meta.id] = { meta, buffer, bpm, firstBeat, peaks: null };
+      }
+
+      song = songCache[meta.id];
+      startBeat = COUNT_IN_BEATS;
+      clampStartBeat();
+      buildPeaks();
+      bpmChip.textContent = `${song.bpm} BPM`;
+      setSongControlsEnabled(true);
+    }
+
+    function setSongControlsEnabled(on) {
+      for (const b of [playSongButton, practiseButton, halfTempo, doubleTempo]) b.disabled = !on;
+    }
+
+    function clampStartBeat() {
+      const last = Math.floor((song.buffer.duration - song.firstBeat) / secondsPerBeat()) - beats;
+      startBeat = Math.max(0, Math.min(startBeat, last));
+    }
+
+    function changeTempo(factor) {
+      stopSession();
+      const startSeconds = beatTime(startBeat);
+      song.bpm = Math.round(song.bpm * factor * 100) / 100;
+      startBeat = Math.round((startSeconds - song.firstBeat) / secondsPerBeat());
+      clampStartBeat();
+      bpmChip.textContent = `${song.bpm} BPM`;
+    }
+
+    halfTempo.addEventListener("click", () => changeTempo(0.5));
+    doubleTempo.addEventListener("click", () => changeTempo(2));
+    songSelect.addEventListener("change", () => selectSong(Number(songSelect.value)));
+
+    // Move length buttons
+    beatsControl.addEventListener("click", (e) => {
+      const btn = e.target.closest("button");
+      if (!btn || btn.disabled) return;
+      beats = Number(btn.dataset.beats);
+      for (const b of beatsControl.children) b.classList.toggle("active", b === btn);
+      if (song) clampStartBeat();
+    });
+
+    clicksToggle.addEventListener("click", () => {
+      clicksOn = !clicksOn;
+      clicksToggle.classList.toggle("on", clicksOn);
+    });
+
+    // Admin tools
+    $("nudgeEarlier").addEventListener("click", () => (song.firstBeat = round(song.firstBeat - 0.01)));
+    $("nudgeLater").addEventListener("click", () => (song.firstBeat = round(song.firstBeat + 0.01)));
+    $("copySettings").addEventListener("click", async () => {
+      const text = `"bpm": ${song.bpm}, "firstBeat": ${song.firstBeat}`;
+      await navigator.clipboard.writeText(text);
+      say("Copied: " + text);
+    });
+
+    // ==========================================================
+    // TIMELINE
+    // ==========================================================
+
+    function buildPeaks() {
+      const width = Math.round(timeline.clientWidth * devicePixelRatio);
+      timeline.width = width;
+      timeline.height = Math.round(timeline.clientHeight * devicePixelRatio);
+      const data = song.buffer.getChannelData(0);
+      const perColumn = Math.floor(data.length / width);
+      const peaks = new Float32Array(width);
+      for (let x = 0; x < width; x++) {
+        let max = 0;
+        for (let i = x * perColumn; i < (x + 1) * perColumn; i += 16) {
+          const v = Math.abs(data[i]);
+          if (v > max) max = v;
+        }
+        peaks[x] = max;
+      }
+      song.peaks = peaks;
+    }
+
+    window.addEventListener("resize", () => song && buildPeaks());
+
+    function drawTimeline(playhead) {
+      const w = timeline.width;
+      const h = timeline.height;
+      const dpr = devicePixelRatio;
+      const duration = song.buffer.duration;
+      const toX = (t) => (t / duration) * w;
+
+      const countIn = toX(beatTime(startBeat - COUNT_IN_BEATS));
+      const moveStart = toX(beatTime(startBeat));
+      const moveEnd = toX(beatTime(startBeat + beats));
+
+      timelineCtx.clearRect(0, 0, w, h);
+
+      // Count-in and move regions
+      timelineCtx.fillStyle = "rgba(255, 204, 0, 0.16)";
+      timelineCtx.fillRect(countIn, 0, moveStart - countIn, h);
+      timelineCtx.fillStyle = "rgba(255, 45, 85, 0.22)";
+      timelineCtx.fillRect(moveStart, 0, moveEnd - moveStart, h);
+
+      // Bar lines every 4 beats
+      timelineCtx.fillStyle = "rgba(255,255,255,0.06)";
+      for (let b = 0; beatTime(b) < duration; b += 4) {
+        timelineCtx.fillRect(toX(beatTime(b)), 0, 1, h);
+      }
+
+      // Waveform
+      const mid = h / 2;
+      for (let x = 0; x < song.peaks.length; x++) {
+        timelineCtx.fillStyle = x >= moveStart && x < moveEnd ? "#ff5c7c" : "#4a4a52";
+        const bar = Math.max(1, song.peaks[x] * h * 0.4);
+        timelineCtx.fillRect(x, mid - bar, 1, bar * 2);
+      }
+
+      // Little labels on the regions
+      timelineCtx.font = `600 ${10 * dpr}px system-ui, sans-serif`;
+      timelineCtx.textBaseline = "top";
+      const fits = (text, width) => timelineCtx.measureText(text).width + 10 * dpr < width;
+      if (fits("4-3-2-1", moveStart - countIn)) {
+        timelineCtx.fillStyle = "#ffcc00";
+        timelineCtx.fillText("4-3-2-1", countIn + 5 * dpr, 6 * dpr);
+      }
+      if (fits("DANCE", moveEnd - moveStart)) {
+        timelineCtx.fillStyle = "#ff2d55";
+        timelineCtx.fillText("DANCE", moveStart + 5 * dpr, 6 * dpr);
+      }
+
+      // Start marker
+      timelineCtx.fillStyle = "#ff2d55";
+      timelineCtx.fillRect(moveStart - dpr, 0, 2 * dpr, h);
+
+      // Playhead
+      if (playhead !== null) {
+        timelineCtx.fillStyle = "#fff";
+        timelineCtx.fillRect(toX(playhead), 0, 2 * dpr, h);
+      }
+    }
+
+    timeline.addEventListener("click", (e) => {
+      if (!song || (session && session.type === "record")) return;
+      const rect = timeline.getBoundingClientRect();
+      const t = ((e.clientX - rect.left) / rect.width) * song.buffer.duration;
+      startBeat = Math.round((t - song.firstBeat) / secondsPerBeat());
+      clampStartBeat();
+      if (session && session.type === "song") playSong(t);
+    });
+
+    // ==========================================================
+    // AUDIO
+    // ==========================================================
+
+    function scheduleClick(time, accent) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.frequency.value = accent ? 1500 : 1000;
+      gain.gain.setValueAtTime(0.35, time);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(time);
+      osc.stop(time + 0.06);
+      return osc;
+    }
+
+    function startSong(buffer, when, offset, stopAt) {
+      const source = audioCtx.createBufferSource();
+      const gain = audioCtx.createGain();
+      source.buffer = buffer;
+      source.connect(gain).connect(audioCtx.destination);
+      source.start(when + Math.max(0, -offset), Math.max(0, offset));
+      if (stopAt) {
+        gain.gain.setValueAtTime(1, stopAt);
+        gain.gain.linearRampToValueAtTime(0, stopAt + 0.25);
+        source.stop(stopAt + 0.3);
+      }
+      return source;
+    }
+
+    function stopSession() {
+      if (!session) return;
+      for (const node of session.nodes) {
+        try { node.stop(); } catch {}
+      }
+      const type = session.type;
+      session = null;
+      bigText.textContent = "";
+      recBadge.style.display = "none";
+      if (type === "record") say("Cancelled");
+      if (type === "practise") say("");
+      resetButtons();
+    }
+
+    function resetButtons() {
+      playSongButton.textContent = "▶";
+      practiseButton.textContent = "Practise";
+      replayButton.textContent = "▶ Replay";
+      if (cameraReady) mainButton.textContent = recordedMove ? "Record again" : "● Record";
+      setLocked(false);
+    }
+
+    // --- Whole song ---
+    async function playSong(from = 0) {
+      await audioCtx.resume();
+      stopSession();
+      const t0 = audioCtx.currentTime + 0.05;
+      const nodes = [startSong(song.buffer, t0, from)];
+      if (clicksOn) {
+        const spb = secondsPerBeat();
+        for (let b = Math.max(0, Math.ceil((from - song.firstBeat) / spb)); beatTime(b) < song.buffer.duration; b++) {
+          nodes.push(scheduleClick(t0 + beatTime(b) - from, b % 4 === 0));
+        }
+      }
+      session = {
+        type: "song",
+        nodes,
+        songTimeAt: (now) => from + (now - t0),
+        endsAt: t0 + song.buffer.duration - from
+      };
+      playSongButton.textContent = "■";
+    }
+
+    playSongButton.addEventListener("click", () => {
+      if (session && session.type === "song") stopSession();
+      else playSong(0);
+    });
+
+    // --- Practise / record: count-in with the music, then the move ---
+    async function startSection(type) {
+      await audioCtx.resume();
+      stopSession();
+
+      const spb = secondsPerBeat();
+      const countInSongTime = beatTime(startBeat - COUNT_IN_BEATS);
+      const t0 = audioCtx.currentTime + 0.2;
+      const moveStart = t0 + COUNT_IN_BEATS * spb;
+      const moveEnd = moveStart + beats * spb;
+
+      const nodes = [startSong(song.buffer, t0, countInSongTime, moveEnd)];
+      for (let i = 0; i < COUNT_IN_BEATS; i++) nodes.push(scheduleClick(t0 + i * spb, i === 0));
+      if (clicksOn) {
+        for (let i = 0; i < beats; i++) nodes.push(scheduleClick(moveStart + i * spb, i % 4 === 0));
+      }
+
+      session = {
+        type, nodes, t0, moveStart, moveEnd, spb, beats,
+        moveSongTime: beatTime(startBeat),
+        songTimeAt: (now) => countInSongTime + (now - t0),
+        endsAt: moveEnd
+      };
+
+      if (type === "record") {
+        frames = [];
+        missedFrames = 0;
+        mainButton.textContent = "■ Cancel";
+        replayButton.style.display = "none";
+        downloadButton.style.display = "none";
+      } else {
+        practiseButton.textContent = "■ Stop";
+      }
+      say("");
+      setLocked(type === "record");
+    }
+
+    practiseButton.addEventListener("click", () => {
+      if (session && session.type === "practise") stopSession();
+      else startSection("practise");
+    });
+
+    // --- Replay recorded move with its music ---
+    async function startReplay() {
+      await audioCtx.resume();
+      stopSession();
+      const t0 = audioCtx.currentTime + 0.1;
+      const end = t0 + recordedMove.duration;
+      const buffer = songCache[recordedMove.songId].buffer;
+      session = {
+        type: "replay",
+        nodes: [startSong(buffer, t0, recordedMove.songStart, end)],
+        t0,
+        endsAt: end,
+        songTimeAt: () => null
+      };
+      replayButton.textContent = "■ Stop";
+    }
+
+    replayButton.addEventListener("click", () => {
+      if (session && session.type === "replay") stopSession();
+      else startReplay();
+    });
+
+    function setLocked(locked) {
+      for (const el of [songSelect, playSongButton, practiseButton, halfTempo, doubleTempo, ...beatsControl.children]) {
+        el.disabled = locked;
+      }
+    }
+
+    // ==========================================================
+    // CAMERA
+    // ==========================================================
+
+    async function loadModel() {
+      const vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+      );
+      poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath:
+            "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+          delegate: "GPU"
+        },
+        runningMode: "VIDEO",
+        numPoses: 1
+      });
+      mainButton.disabled = false;
+      mainButton.textContent = "Start camera";
+    }
+
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480 },
+          audio: false
+        });
+        video.srcObject = stream;
+        video.addEventListener("loadeddata", () => {
+          overlay.width = preview.width = video.videoWidth;
+          overlay.height = preview.height = video.videoHeight;
+          cameraReady = true;
+          placeholder.style.display = "none";
+          mainButton.textContent = "● Record";
+          say("Step back so your whole body is in view");
+        });
+      } catch (err) {
+        say("Camera blocked. Allow access in the address bar.");
+      }
+    }
+
+    // One main button: Start camera → Record → Cancel → Record again
+    mainButton.addEventListener("click", () => {
+      if (!cameraReady) return startCamera();
+      if (session && session.type === "record") return stopSession();
+      if (song) startSection("record");
+    });
+
+    downloadButton.addEventListener("click", downloadMove);
+
+    // ==========================================================
+    // MAIN LOOP
+    // ==========================================================
+
+    function mainLoop() {
+      const now = audioCtx.currentTime;
+
+      // Body tracking
+      if (cameraReady && video.currentTime !== lastVideoTime) {
+        lastVideoTime = video.currentTime;
+        const result = poseLandmarker.detectForVideo(video, performance.now());
+        const found = result.landmarks.length > 0;
+        const isRecording =
+          session && session.type === "record" && now >= session.moveStart && now < session.moveEnd;
+
+        overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+        if (found) {
+          overlayDraw.drawConnectors(result.landmarks[0], PoseLandmarker.POSE_CONNECTIONS, {
+            color: isRecording ? "#ff2d55" : "#00e5ff",
+            lineWidth: 4
+          });
+          overlayDraw.drawLandmarks(result.landmarks[0], { color: "#fff", radius: 3 });
+        }
+
+        if (isRecording) {
+          if (found) {
+            const t = now - session.moveStart;
+            frames.push({
+              t: round(t),
+              beat: round(t / session.spb),
+              points: result.worldLandmarks[0].map((p) => [
+                round(p.x), round(p.y), round(p.z), round(p.visibility ?? 1)
+              ])
+            });
+          } else {
+            missedFrames++;
+          }
+        }
+      }
+
+      // Count-in / beat counter
+      if (session && (session.type === "record" || session.type === "practise")) {
+        if (now >= session.t0 && now < session.moveStart) {
+          bigText.textContent = COUNT_IN_BEATS - Math.floor((now - session.t0) / session.spb);
+        } else if (now >= session.moveStart && now < session.moveEnd) {
+          bigText.textContent = "";
+          const beatNow = Math.min(Math.floor((now - session.moveStart) / session.spb) + 1, session.beats);
+          recBadge.style.display = "block";
+          recBadge.textContent =
+            (session.type === "record" ? "● REC " : "Practice ") + `${beatNow}/${session.beats}`;
+        }
+      }
+
+      // Finished?
+      if (session && now >= session.endsAt) {
+        const done = session;
+        session = null;
+        bigText.textContent = "";
+        recBadge.style.display = "none";
+        if (done.type === "record") finishRecording(done);
+        resetButtons();
+      }
+
+      if (song && song.peaks) drawTimeline(session ? session.songTimeAt(now) : null);
+      if (recordedMove) drawPreview(now);
+
+      requestAnimationFrame(mainLoop);
+    }
+
+    // ==========================================================
+    // RESULT
+    // ==========================================================
+
+    function finishRecording(s) {
+      if (frames.length < 10) {
+        say("Couldn't see you. Step back and try again.");
+        return;
+      }
+
+      recordedMove = {
+        name: "my-move-" + Date.now(),
+        songId: song.meta.id,
+        songStart: round(s.moveSongTime),
+        bpm: song.bpm,
+        beats: s.beats,
+        duration: round(s.beats * s.spb),
+        landmarkCount: 33,
+        frames
+      };
+
+      const missedPct = Math.round((missedFrames / (frames.length + missedFrames)) * 100);
+      say(missedPct > 20 ? "Lost you in parts. Maybe try again?" : "Nice! ✓");
+
+      panels.classList.add("split");
+      previewStage.style.display = "block";
+      replayButton.style.display = "inline-block";
+      downloadButton.style.display = "inline-block";
+      previewStart = performance.now();
+    }
+
+    function drawPreview(now) {
+      const elapsed =
+        session && session.type === "replay"
+          ? Math.max(0, now - session.t0)
+          : ((performance.now() - previewStart) / 1000) % recordedMove.duration;
+
+      let frame = recordedMove.frames[0];
+      for (const f of recordedMove.frames) {
+        if (f.t <= elapsed) frame = f;
+        else break;
+      }
+
+      const pts = frame.points.map(([x, y, z]) => ({ x: 0.5 + x * 0.4, y: 0.45 + y * 0.4, z }));
+      previewCtx.clearRect(0, 0, preview.width, preview.height);
+      previewDraw.drawConnectors(pts, PoseLandmarker.POSE_CONNECTIONS, { color: "#ff2d55", lineWidth: 4 });
+      previewDraw.drawLandmarks(pts, { color: "#fff", radius: 3 });
+    }
+
+    function downloadMove() {
+      const blob = new Blob([JSON.stringify(recordedMove)], { type: "application/json" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = recordedMove.name + ".json";
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }
+
+    // ---------- Go ----------
+    mainLoop();
+    loadSongList();
+    loadModel().catch(() => say("Couldn't load the tracker. Check your internet."));
+  </script>
+</body>
+</html>
