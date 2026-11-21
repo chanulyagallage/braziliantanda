@@ -6,12 +6,16 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 // ================= YOUR DANCES =================
 // Add a line here for every new dance. "id" must match the action name in Blender.
 const DANCES = [
-  { id: 'funkydance', name: 'Funky Bop',  emoji: '🕺', file: 'Dances/Magdalene/boppingdance.glb',
+  { id: 'funkydance',  name: 'Funky Bop',    emoji: '🕺', file: 'Dances/Magdalene/boppingdance.glb',
     desc: 'Knee bops – arms open when she rises, tuck in when she dips, turning left then right.' },
-  { id: 'hiphits',    name: 'Hip Hits',   emoji: '💃', file: 'Dances/Magdalene/sidetoside.glb',
+  { id: 'hiphits',     name: 'Hip Hits',     emoji: '💃', file: 'Dances/Magdalene/sidetoside.glb',
     desc: 'Hands slap the hips right-left-right while the hips pop out to meet them.' },
-  { id: 'shakawalk',  name: 'Shaka Walk', emoji: '🤙', file: 'Dances/Magdalene/shakastep.glb',
+  { id: 'shakawalk',   name: 'Shaka Walk',   emoji: '🤙', file: 'Dances/Magdalene/shakastep.glb',
     desc: 'Shaka hands shaking while she steps forward and back, opposite arm out front.' },
+  { id: 'kneebending', name: 'Knee Bending', emoji: '🦵', file: 'Dances/Chanulya/kneebending.glb',
+    desc: 'Chanulya’s Brazilian knee bending groove.' },
+  { id: 'woah',        name: 'Woah',         emoji: '😮', file: 'Dances/Chanulya/woah.glb',
+    desc: 'Chanulya’s Brazilian woah move.' },
 ];
 
 // ================= 3D STAGE =================
