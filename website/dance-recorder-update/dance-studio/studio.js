@@ -120,17 +120,17 @@ async function loadSkinList() {
     if (btn) selectSkin(Number(btn.dataset.index));
   });
   // Hide the picker when there's only one character
-  skinPicker.style.display = skins.length > 1 ? "flex" : "none";
+  $("skinSection").style.display = skins.length > 1 ? "block" : "none";
 
   let saved = 0;
-  try { saved = Number(localStorage.getItem("skin") || 0); } catch { }
+  try { saved = Number(localStorage.getItem("skin") || 0); } catch {}
   await selectSkin(saved < skins.length ? saved : 0);
 }
 
 async function selectSkin(index) {
   const meta = skins[index];
   for (const b of skinPicker.children) b.classList.toggle("active", Number(b.dataset.index) === index);
-  try { localStorage.setItem("skin", index); } catch { }
+  try { localStorage.setItem("skin", index); } catch {}
 
   if (!skinCache[meta.id]) {
     charLabel.textContent = "Loading…";
@@ -165,8 +165,9 @@ function frameCharacter() {
   camera3d.far = height * 100;
   camera3d.updateProjectionMatrix();
 
-  const dist = (height / (2 * Math.tan((camera3d.fov * Math.PI) / 360))) * 1.35;
-  controls.target.copy(centre);
+  const dist = (height / (2 * Math.tan((camera3d.fov * Math.PI) / 360))) * 1.5;
+  // Aim slightly below the middle so the character sits above the Record button
+  controls.target.copy(centre).add(new THREE.Vector3(0, -height * 0.08, 0));
   camera3d.position.set(centre.x, centre.y + height * 0.05, centre.z + dist);
   controls.update();
 
@@ -212,7 +213,7 @@ async function detectBeatsCached(meta, buffer) {
   try {
     const saved = JSON.parse(localStorage.getItem(key));
     if (saved) return saved;
-  } catch { }
+  } catch {}
 
   // Mix to mono and hand a copy to the worker
   const mono = new Float32Array(buffer.length);
@@ -227,7 +228,7 @@ async function detectBeatsCached(meta, buffer) {
     worker.postMessage({ samples: mono, sampleRate: buffer.sampleRate }, [mono.buffer]);
   });
 
-  try { localStorage.setItem(key, JSON.stringify(result)); } catch { }
+  try { localStorage.setItem(key, JSON.stringify(result)); } catch {}
   return result;
 }
 
@@ -394,7 +395,7 @@ function startSong(buffer, when, offset, stopAt) {
 function stopSession() {
   if (!session) return;
   for (const node of session.nodes) {
-    try { node.stop(); } catch { }
+    try { node.stop(); } catch {}
   }
   const type = session.type;
   session = null;
@@ -498,14 +499,14 @@ function loadTracker() {
     mp = await import(`${MEDIAPIPE}/vision_bundle.mjs`);
     const vision = await mp.FilesetResolver.forVisionTasks(`${MEDIAPIPE}/wasm`);
     poseLandmarker = await mp.PoseLandmarker.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetPath:
-          "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
-        delegate: "GPU"
-      },
-      runningMode: "VIDEO",
-      numPoses: 1
-    });
+    baseOptions: {
+      modelAssetPath:
+        "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+      delegate: "GPU"
+    },
+    runningMode: "VIDEO",
+    numPoses: 1
+  });
     overlayDraw = new mp.DrawingUtils(overlayCtx);
   })();
   return trackerPromise;
@@ -526,6 +527,7 @@ async function startCamera() {
     await loadTracker();
 
     cameraReady = true;
+    $("camHint").style.display = "none";
     mainButton.textContent = "● Record";
     say("Step back so your whole body is in view");
   } catch (err) {
@@ -543,6 +545,22 @@ mainButton.addEventListener("click", () => {
   if (!cameraReady) return startCamera();
   if (session && session.type === "record") return stopSession();
   if (song && rig) startSection("record");
+});
+
+// ==========================================================
+// SWAP VIEWS (click the small corner view to make it big)
+// ==========================================================
+const camView = $("camView");
+controls.enabled = false; // the character starts in the corner
+
+document.querySelector(".stage").addEventListener("click", (e) => {
+  const pip = e.target.closest(".view.pip");
+  if (!pip) return;
+  const big = pip === camView ? charStage : camView;
+  pip.classList.replace("pip", "main");
+  big.classList.replace("main", "pip");
+  // You can only spin the character around when it's the big view
+  controls.enabled = charStage.classList.contains("main");
 });
 
 // ==========================================================
@@ -674,9 +692,11 @@ function renderMoveList() {
     .map((m) => `
       <div class="move ${m.id === playingId ? "playing" : ""}" data-id="${m.id}">
         <button class="icon-btn play" title="Play on character">${m.id === playingId ? "■" : "▶"}</button>
-        <input value="${escapeHtml(m.name)}" title="Rename" />
-        <span class="meta">${m.beats} beats · ${escapeHtml(m.songTitle || m.songId)}</span>
-        <button class="tiny delete" title="Delete">Delete</button>
+        <div class="info">
+          <input value="${escapeHtml(m.name)}" title="Rename" />
+          <div class="meta">${m.beats} beats · ${escapeHtml(m.songTitle || m.songId)}</div>
+        </div>
+        <button class="tiny delete" title="Delete">✕</button>
       </div>`)
     .join("");
 }
