@@ -143,6 +143,15 @@ const send = (res, code, obj) => { res.writeHead(code, { 'content-type': 'applic
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
+  // let the Go Live page (127.0.0.1:5500 / localhost:5500) call this server
+  const origin = req.headers.origin || '';
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'content-type');
+    res.setHeader('Vary', 'Origin');
+  }
+  if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
   if (url.pathname === '/api/choreograph' && req.method === 'POST') {
     try {
       if (limited(req.socket.remoteAddress)) return send(res, 429, { error: 'Slow down a little – try again in a minute.' });

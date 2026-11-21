@@ -234,6 +234,10 @@ function highlightStep(i) {
 }
 
 // ================= AI CHOREOGRAPHER =================
+// The AI lives in server.js (port 3000). If this page was opened some other way (e.g. Go Live), talk to that server directly.
+// (Only on your own computer. On a deployed website the page and the server share one address, so no prefix is needed.)
+const ON_MY_COMPUTER = ['localhost', '127.0.0.1'].includes(location.hostname);
+const API_BASE = ON_MY_COMPUTER && location.port !== '3000' ? 'http://localhost:3000' : '';
 async function askAI() {
   const prompt = document.getElementById('prompt').value.trim();
   const out = document.getElementById('aiOut');
@@ -243,7 +247,7 @@ async function askAI() {
   const available = DANCES.filter(d => clips[d.id]).map(d => ({ id: d.id, name: d.name, desc: d.desc, dur: clips[d.id].duration }));  btn.disabled = true;
   out.innerHTML = '<p>💭 Choreographing…</p>';
   try {
-    const res = await fetch('/api/choreograph', {
+    const res = await fetch(API_BASE + '/api/choreograph', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, dances: available, current: routine }),
@@ -263,7 +267,8 @@ async function askAI() {
     stopAll();
     playRoutine();
   } catch (err) {
-    out.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+    const down = err instanceof TypeError || /pattern|Failed to fetch|Load failed|JSON/i.test(err.message);
+    out.innerHTML = `<p class="error">${down ? 'Cannot reach the AI. In the VS Code terminal run: node server.js  (then try again)' : escapeHtml(err.message)}</p>`;
   } finally {
     btn.disabled = false;
   }
