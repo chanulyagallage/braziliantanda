@@ -1,0 +1,20 @@
+[
+  { "id": "dame-tu-cosita", "title": "Dame tu cosita", "artist": "El Chombo", "file": "Dame tu cosita.mp3",
+    "bpm": 144, "energy": "high", "genre": "dance / reggaeton",
+    "vibe": "Fast, playful and cheeky. Great for quick, funny, high-energy moves." },
+  { "id": "gangnam-style", "title": "Gangnam Style", "artist": "PSY", "file": "Gangnam Style.mp3",
+    "bpm": 129, "energy": "high", "genre": "k-pop / dance",
+    "vibe": "Huge party energy, bouncy and fun. Everyone knows it." },
+  { "id": "gasolina", "title": "Gasolina", "artist": "Daddy Yankee", "file": "Gasolina.mp3",
+    "bpm": 96, "energy": "medium", "genre": "reggaeton",
+    "vibe": "Latin reggaeton groove, hip-swaying and spicy. Suits Brazilian and Latin styles, and slower sultry moves." },
+  { "id": "lets-groove", "title": "Let's Groove", "artist": "Earth, Wind & Fire", "file": "Let's groove.mp3",
+    "bpm": 123, "energy": "medium-high", "genre": "funk / disco",
+    "vibe": "Feel-good funk and disco. Smooth, groovy and happy." },
+  { "id": "quiet-on-the-creek", "title": "Quiet on the creek", "artist": "", "file": "Quiet on the creek.mp3",
+    "bpm": 99, "energy": "medium", "genre": "",
+    "vibe": "Mid-tempo groove (about 99 BPM). Edit this line to describe how it sounds." },
+  { "id": "work-hard-play-hard", "title": "Work hard play hard", "artist": "Wiz Khalifa", "file": "Work hard play hard.mp3",
+    "bpm": 129, "energy": "high", "genre": "hip-hop",
+    "vibe": "Confident hip-hop party energy. Strong, swaggering moves." }
+]

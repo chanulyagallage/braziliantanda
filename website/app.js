@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { unlockMusic, setSong, clearSong, startMusic, stopMusic, renderSong } from './ai-music.js';
 
 // ================= YOUR DANCES =================
 // Add a line here for every new dance. "id" must match the action name in Blender.
@@ -178,6 +179,7 @@ function playClip(id, { speed = 1, repeats = 1 } = {}) {
 async function playRoutine() {
   if (!routine.length) return setNowPlaying('Add some moves first!');
   const token = ++playToken;
+  startMusic();          // plays the song the AI picked (if any)
   for (let i = 0; i < routine.length; i++) {
     if (token !== playToken) return;
     const step = routine[i];
@@ -187,12 +189,14 @@ async function playRoutine() {
   }
   if (token === playToken) {
     highlightStep(-1);
+    stopMusic(true);
     setNowPlaying('Routine finished 🎉');
   }
 }
 
 function stopAll() {
   playToken++;
+  stopMusic();
   if (mixer) mixer.stopAllAction();
   current = null;
   highlightStep(-1);
@@ -271,6 +275,7 @@ async function askAI() {
   const out = document.getElementById('aiOut');
   const btn = document.getElementById('aiBtn');
   if (!prompt) { out.innerHTML = '<p class="error">Type what you want first!</p>'; return; }
+  unlockMusic();   // lets the browser play the song later (needs a click)
 
   const available = DANCES.filter(d => clips[d.id]).map(d => ({ id: d.id, name: d.name, desc: d.desc, dur: clips[d.id].duration }));  btn.disabled = true;
   out.innerHTML = '<p>💭 Choreographing…</p>';
@@ -292,6 +297,8 @@ async function askAI() {
       <h3>${escapeHtml(data.name || 'Your routine')}</h3>
       <p>${escapeHtml(data.vibe || '')}</p>
       ${data.tips?.length ? `<ul>${data.tips.map(t => `<li>${escapeHtml(t)}</li>`).join('')}</ul>` : ''}`;
+    setSong(data.music);
+    renderSong(out);
     stopAll();
     playRoutine();
   } catch (err) {
@@ -311,7 +318,7 @@ function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp
 document.getElementById('playBtn').addEventListener('click', () => { stopAll(); playRoutine(); });
 document.getElementById('stopBtn').addEventListener('click', stopAll);
 document.getElementById('clearBtn').addEventListener('click', () => {
-  stopAll(); routine = []; renderRoutine();
+  stopAll(); clearSong(); routine = []; renderRoutine();
   document.getElementById('routineName').textContent = '';
   document.getElementById('aiOut').innerHTML = '';
 });
