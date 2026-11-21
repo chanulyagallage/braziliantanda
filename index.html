@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Brazilian Tanda – Build Your Dance</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header>
+    <h1>Brazilian Tanda <span class="tag">build your own dance</span></h1>
+    <p class="sub">Pick the moves you like, stack them into a routine, or let the AI choreograph one for you.</p>
+  </header>
+
+  <main>
+    <!-- LEFT: the dancer -->
+    <section class="stage-wrap">
+      <div id="stage">
+        <div id="loading">Loading dancer…</div>
+      </div>
+      <div class="now-playing" id="nowPlaying">Ready</div>
+      <div class="controls">
+        <button id="playBtn" class="primary">▶ Play routine</button>
+        <button id="stopBtn">■ Stop</button>
+        <button id="clearBtn">Clear</button>
+      </div>
+    </section>
+
+    <!-- RIGHT: moves, routine, AI -->
+    <section class="side">
+      <div class="panel">
+        <h2>1. Dance moves</h2>
+        <p class="hint">Click a move to preview it, or press + to add it to your routine.</p>
+        <div id="library" class="library"></div>
+      </div>
+
+      <div class="panel">
+        <h2>2. Your routine <span id="routineName" class="routine-name"></span></h2>
+        <ol id="routine" class="routine"></ol>
+        <p id="emptyRoutine" class="hint">No moves yet – add some above or ask the AI below.</p>
+      </div>
+
+      <div class="panel ai">
+        <h2>3. AI choreographer ✨</h2>
+        <p class="hint">Describe the vibe. The AI picks the moves, order, speed and repeats – or remixes your current routine.</p>
+        <textarea id="prompt" rows="3" placeholder="e.g. make me a 20 second hype routine that starts chill and ends with the shaka walk"></textarea>
+        <button id="aiBtn" class="primary">Choreograph it</button>
+        <div id="aiOut" class="ai-out"></div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
