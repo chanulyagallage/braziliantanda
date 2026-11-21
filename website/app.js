@@ -22,6 +22,16 @@ const DANCES = [
     desc: 'Pranusha’s Can I Ride – legs part.' },
   { id: 'drumjump',    name: 'Drum Jump',    emoji: '🥁', file: 'Dances/Pranusha/drum_jump.glb',
     desc: 'Pranusha’s drum jump move.' },
+  { id: 'brazpump',    name: 'Brazilian Pump', emoji: '🔥', file: 'Dances/Bhoomini/AIBrazillianPump.glb',
+    desc: 'Bhoomini’s Brazilian pump.' },
+  { id: 'fratflick',   name: 'Frat Flick',   emoji: '😎', file: 'Dances/Bhoomini/AIFratFlick.glb',
+    desc: 'Bhoomini’s frat flick move.' },
+  { id: 'nut',         name: 'Nut',          emoji: '🥜', file: 'Dances/Bhoomini/AINut.glb',
+    desc: 'Bhoomini’s nut move.' },
+  { id: 'rah',         name: 'Rah',          emoji: '📣', file: 'Dances/Bhoomini/AIRah1.glb',
+    desc: 'Bhoomini’s rah move.' },
+  { id: 'scuba',       name: 'Scuba',        emoji: '🤿', file: 'Dances/Bhoomini/AIScuba.glb',
+    desc: 'Bhoomini’s scuba move.' },
 ];
 
 // ================= 3D STAGE =================
@@ -63,7 +73,7 @@ const clips = {};          // dance id -> AnimationClip
 const clock = new THREE.Clock();
 
 // The girl on the website comes from this file - every dance plays on her.
-const CHARACTER_FILE = 'Dances/Chanulya/kneebending.glb';
+const CHARACTER_FILE = 'Dances/Bhoomini/AIBrazillianPump.glb';
 
 async function loadEverything() {
   let model = null;
