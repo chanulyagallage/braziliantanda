@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { createRetargeter } from './retarget.js';
+import { loadRecordedMoves } from './recorded-moves.js';
+import { setupSongPicker, startMusic, stopMusic, tempoFactor } from './music.js';
 
 // ================= YOUR DANCES =================
 // Add a line here for every new dance. "id" must match the action name in Blender.
@@ -136,6 +139,7 @@ draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
 loader.setDRACOLoader(draco);
 
 let mixer = null;
+let rig = null;
 const clips = {};          // dance id -> AnimationClip
 const clock = new THREE.Clock();
 
@@ -150,6 +154,7 @@ async function loadEverything() {
     scene.add(model);
     mixer = new THREE.AnimationMixer(model);
     frameModel(model);
+    rig = createRetargeter(model);
     console.log('The girl comes from:', file);
   };
   try {
@@ -171,14 +176,35 @@ async function loadEverything() {
   if (!model) console.warn('None of the .glb files have her body - export character.glb in Object Mode');
   document.getElementById('loading').textContent =
     model ? '' : 'No body found – export character.glb in Object Mode.';
+  await refreshRecorded();
   renderLibrary();
+}
+
+// ================= RECORDED MOVES + MUSIC =================
+let recorded = [];   // moves recorded in studio.html
+
+async function refreshRecorded() {
+  if (!rig) return;
+  recorded = await loadRecordedMoves(rig, clips);
+  routine = routine.filter((s) => clips[s.id]);   // drop moves that were deleted
+}
+
+// Coming back from the studio? Pick up any new moves.
+window.addEventListener('focus', async () => { await refreshRecorded(); renderLibrary(); renderRoutine(); });
+
+const allDances = () => [...DANCES, ...recorded];
+
+// A step's speed after matching the dance to the song's tempo
+function effectiveSpeed(step) {
+  const dance = allDances().find((d) => d.id === step.id);
+  return clamp(step.speed * tempoFactor(dance?.bpm), 0.25, 4);
 }
 
 // ================= SHARE WITH export.js =================
 window.tanda = {
   get routine() { return routine; },     // always the latest routine, even after the AI replaces it
   play: () => { stopAll(); return playRoutine(); },
-  seconds: () => routine.reduce((t, s) => t + ((clips[s.id]?.duration || 4) / s.speed) * s.repeats, 0),
+  seconds: () => routine.reduce((t, s) => t + ((clips[s.id]?.duration || 4) / effectiveSpeed(s)) * s.repeats, 0),
   setExportBackground: () => {},          // the chosen background is already part of the video
 };
 
@@ -253,21 +279,25 @@ function playClip(id, { speed = 1, repeats = 1 } = {}) {
 async function playRoutine() {
   if (!routine.length) return setNowPlaying('Add some moves first!');
   const token = ++playToken;
+  const msToFirstBeat = await startMusic();               // start the song...
+  await new Promise((r) => setTimeout(r, msToFirstBeat)); // ...and wait for its first beat
   for (let i = 0; i < routine.length; i++) {
     if (token !== playToken) return;
     const step = routine[i];
     highlightStep(i);
     setNowPlaying(`Now: <b>${danceName(step.id)}</b> (${i + 1}/${routine.length})`);
-    await playClip(step.id, step);
+    await playClip(step.id, { speed: effectiveSpeed(step), repeats: step.repeats });
   }
   if (token === playToken) {
     highlightStep(-1);
     setNowPlaying('Routine finished 🎉');
+    stopMusic(1.5);
   }
 }
 
 function stopAll() {
   playToken++;
+  stopMusic();
   if (mixer) mixer.stopAllAction();
   current = null;
   highlightStep(-1);
@@ -285,7 +315,7 @@ function addStep(id, speed = 1, repeats = 1) {
 function renderLibrary() {
   const lib = document.getElementById('library');
   lib.innerHTML = '';
-  for (const d of DANCES) {
+  for (const d of allDances()) {
     const ok = !!clips[d.id];
     const el = document.createElement('div');
     el.className = 'move' + (ok ? '' : ' missing');
@@ -347,7 +377,7 @@ async function askAI() {
   const btn = document.getElementById('aiBtn');
   if (!prompt) { out.innerHTML = '<p class="error">Type what you want first!</p>'; return; }
 
-  const available = DANCES.filter(d => clips[d.id]).map(d => ({ id: d.id, name: d.name, desc: d.desc, dur: clips[d.id].duration }));  btn.disabled = true;
+  const available = allDances().filter(d => clips[d.id]).map(d => ({ id: d.id, name: d.name, desc: d.desc, dur: clips[d.id].duration }));  btn.disabled = true;
   out.innerHTML = '<p>💭 Choreographing…</p>';
   try {
     const res = await fetch(API_BASE + '/api/choreograph', {
@@ -378,7 +408,7 @@ async function askAI() {
 }
 
 // ================= HELPERS + BUTTONS =================
-function danceName(id) { return DANCES.find(d => d.id === id)?.name || id; }
+function danceName(id) { return allDances().find(d => d.id === id)?.name || id; }
 function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 function setNowPlaying(html) { document.getElementById('nowPlaying').innerHTML = html; }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -393,4 +423,5 @@ document.getElementById('clearBtn').addEventListener('click', () => {
 document.getElementById('aiBtn').addEventListener('click', askAI);
 
 renderRoutine();
+setupSongPicker(document.getElementById('songSelect'), document.getElementById('bpmChip'), stopAll);
 loadEverything();

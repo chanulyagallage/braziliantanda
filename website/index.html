@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -14,6 +15,7 @@
     }
   </script>
 </head>
+
 <body>
   <header>
     <h1>Brazilian Tanda <span class="tag">build your own dance</span></h1>
@@ -27,6 +29,13 @@
         <div id="loading">Loading dancer…</div>
       </div>
       <div class="now-playing" id="nowPlaying">Ready</div>
+      <div class="music-bar">
+        <span class="music-label">🎵 Song</span>
+        <select id="songSelect">
+          <option value="">No music</option>
+        </select>
+        <span id="bpmChip" class="chip"></span>
+      </div>
       <div class="controls">
         <button id="playBtn" class="primary">▶ Play routine</button>
         <button id="stopBtn">■ Stop</button>
@@ -39,7 +48,10 @@
     <!-- RIGHT: moves, routine, AI -->
     <section class="side">
       <div class="panel">
-        <h2>1. Dance moves</h2>
+        <div class="panel-head">
+          <h2>1. Dance moves</h2>
+          <a class="record-link" href="studio.html">🎥 Record your own move</a>
+        </div>
         <p class="hint">Click a move to preview it, or press + to add it to your routine.</p>
         <div id="library" class="library"></div>
       </div>
@@ -52,8 +64,10 @@
 
       <div class="panel ai">
         <h2>3. AI choreographer ✨</h2>
-        <p class="hint">Describe the vibe. The AI picks the moves, order, speed and repeats – or remixes your current routine.</p>
-        <textarea id="prompt" rows="3" placeholder="e.g. make me a 20 second hype routine that starts chill and ends with the shaka walk"></textarea>
+        <p class="hint">Describe the vibe. The AI picks the moves, order, speed and repeats – or remixes your current
+          routine.</p>
+        <textarea id="prompt" rows="3"
+          placeholder="e.g. make me a 20 second hype routine that starts chill and ends with the shaka walk"></textarea>
         <button id="aiBtn" class="primary">Choreograph it</button>
         <div id="aiOut" class="ai-out"></div>
       </div>
@@ -63,4 +77,5 @@
   <script type="module" src="app.js"></script>
   <script src="export.js"></script>
 </body>
+
 </html>

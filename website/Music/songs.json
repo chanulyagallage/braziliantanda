@@ -1,0 +1,9 @@
+[
+  { "id": "demo-beat", "title": "Demo Beat", "artist": "Test track", "file": "Music/demo-beat.mp3" },
+  { "id": "dame-tu-cosita", "title": "Dame Tu Cosita", "artist": "El Chombo", "file": "Music/Dame tu cosita.mp3" },
+  { "id": "gangnam-style", "title": "Gangnam Style", "artist": "PSY", "file": "Music/Gangnam Style.mp3" },
+  { "id": "gasolina", "title": "Gasolina", "artist": "Daddy Yankee", "file": "Music/Gasolina.mp3" },
+  { "id": "lets-groove", "title": "Let's Groove", "artist": "Earth, Wind & Fire", "file": "Music/Let's groove.mp3" },
+  { "id": "quiet-on-the-creek", "title": "Quiet on the Creek", "artist": "Unknown", "file": "Music/Quiet on the creek.mp3" },
+  { "id": "work-hard-play-hard", "title": "Work Hard Play Hard", "artist": "Wiz Khalifa", "file": "Music/Work hard play hard.mp3" }
+]

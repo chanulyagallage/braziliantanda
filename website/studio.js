@@ -183,7 +183,7 @@ const beatTime = (b) => song.firstBeat + b * secondsPerBeat();
 
 async function loadSongList() {
   try {
-    songs = await (await fetch("music/songs.json")).json();
+    songs = await (await fetch("Music/songs.json")).json();
   } catch {
     songSelect.innerHTML = "<option>No songs found</option>";
     return;
