@@ -121,3 +121,40 @@ button.small { padding: 4px 9px; font-size: 0.85rem; border-radius: 8px; }
 .ai-out h3 { margin: 0 0 6px; color: var(--accent-2); font-size: 1rem; }
 .ai-out ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
 .ai-out .error { color: #ff7a7a; }
+
+.bg-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; justify-content: center; }
+.bg-picker button.active { outline: 2px solid #fff; }
+/* ---------- music ---------- */
+.music-bar { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.music-label { color: var(--muted); font-size: 0.9rem; }
+.music-bar select {
+  background: var(--panel-2); color: var(--text); border: 1px solid #3a3150;
+  border-radius: 10px; padding: 7px 10px; font: inherit; font-size: 0.9rem; min-width: 220px;
+}
+.chip:empty { display: none; }
+.chip {
+  font-size: 0.8rem; color: var(--muted); padding: 3px 9px;
+  border: 1px solid #3a3150; border-radius: 999px;
+}
+
+/* ---------- record button ---------- */
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.panel-head h2 { margin: 0; }
+.record-link {
+  text-decoration: none; font-weight: 700; font-size: 0.85rem;
+  color: #1a0f22; background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  padding: 6px 12px; border-radius: 999px;
+}
+.record-link:hover { filter: brightness(1.08); }
+
+/* ---------- song timeline ---------- */
+.music-timeline canvas {
+  display: block; width: 100%; height: 64px;
+  border-radius: 8px; background: #120e1a; cursor: pointer; touch-action: none;
+}
+.music-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.music-info { color: var(--muted); font-size: 0.85rem; }
+.seg { display: inline-flex; background: var(--panel-2); border: 1px solid #3a3150; border-radius: 9px; padding: 2px; }
+.seg button { border: none; background: transparent; color: var(--muted); padding: 3px 9px; font-size: 0.8rem; border-radius: 7px; }
+.seg button:hover { background: #312947; }
+.seg button.active { background: var(--accent); color: #1a0f22; font-weight: 700; }

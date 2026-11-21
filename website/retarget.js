@@ -236,8 +236,53 @@ export function createRetargeter(model) {
     report,            // [{ part, bone }] – which bone was used for each body part
     missing,           // body parts it couldn't find
     allBoneNames: allBones.map((b) => b.name),
+    model,
+    hips: bone.hips,
+    restModelPos,
     joints: allBones   // every bone/joint object, e.g. for drawing the skeleton
   };
+}
+
+// Turn a recorded move into a normal Three.js AnimationClip for this character.
+// It then plays through an AnimationMixer exactly like the Blender dances,
+// so crossfades, speed and repeats all work the same way.
+export function bakeMoveToClip(rig, move, name = move.name || "recorded", fps = 30) {
+  const { model, joints, hips, restModelPos } = rig;
+  const count = Math.max(2, Math.round(move.duration * fps) + 1);
+  const times = new Float32Array(count);
+  const rotations = joints.map(() => new Float32Array(count * 4));
+  const hipsPositions = new Float32Array(count * 3);
+  const restHipsPos = hips.position.clone();
+  const v = new THREE.Vector3();
+
+  for (let i = 0; i < count; i++) {
+    const t = Math.min(move.duration, i / fps);
+    times[i] = t;
+    rig.applyPose(samplePoints(move, t));
+
+    // applyPose lifts/lowers the whole model to keep the feet on the floor.
+    // A clip can't move the model, so move the hips bone by the same amount instead.
+    const lift = model.position.y - restModelPos.y;
+    model.position.copy(restModelPos);
+    model.updateMatrixWorld(true);
+    hips.getWorldPosition(v);
+    v.y += lift;
+    hips.parent.worldToLocal(v);
+    hipsPositions.set([v.x, v.y, v.z], i * 3);
+
+    // Every bone gets a track (unused ones just hold their rest pose), so the
+    // pose is fully defined even straight after a Blender dance
+    joints.forEach((j, k) => j.quaternion.toArray(rotations[k], i * 4));
+  }
+
+  rig.resetPose();
+  hips.position.copy(restHipsPos);
+
+  const tracks = joints.map(
+    (j, k) => new THREE.QuaternionKeyframeTrack(`${j.name}.quaternion`, times, rotations[k])
+  );
+  tracks.push(new THREE.VectorKeyframeTrack(`${hips.name}.position`, times, hipsPositions));
+  return new THREE.AnimationClip(name, move.duration, tracks).optimize();
 }
 
 // Get the body points at any moment of a recorded move, blending between

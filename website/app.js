@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { unlockMusic, setSong, clearSong, startMusic, stopMusic, renderSong } from './ai-music.js';
+import { createRetargeter } from './retarget.js';
+import { loadRecordedMoves } from './recorded-moves.js';
+import { getCurrentSong, setupSongPicker, startMusic, stopMusic, tempoFactor, musicTimeUp, keepDancing } from './music.js';
 
 // ================= YOUR DANCES =================
 // Add a line here for every new dance. "id" must match the action name in Blender.
@@ -39,7 +41,7 @@ const DANCES = [
 const stage = document.getElementById('stage');
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 stage.appendChild(renderer.domElement);
@@ -63,6 +65,73 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
+// ================= BACKGROUNDS =================
+// Add your own picture: put it in website/backgrounds/ and add a line with image: '...'
+const BACKGROUNDS = [
+  { name: '🌙 Night',          colors: ['#2a1f45', '#0f0b1a'] },
+  { name: '🌴 Vice Beach',     image: 'backgrounds/01-vice-beach-sunset.webp',   grid: false },
+  { name: '🍂 Autumn Park',    image: 'backgrounds/02-autumn-park.webp',         grid: false },
+  { name: '🇧🇷 Copacabana',     image: 'backgrounds/03-rio-copacabana.webp',      grid: false },
+  { name: '🏮 Tokyo Neon',     image: 'backgrounds/04-tokyo-neon-night.webp',    grid: false },
+  { name: '⚡ Electric Grid',  image: 'backgrounds/05-electric-grid.webp',       grid: false },
+  { name: '🏜️ Desert',         image: 'backgrounds/06-desert-midday.webp',       grid: false },
+  { name: '🏝️ Tropical Beach', image: 'backgrounds/07-tropical-beach-day.webp',  grid: false },
+  { name: '🌌 Aurora',         image: 'backgrounds/08-aurora-mountains.webp',    grid: false },
+  { name: '🌸 Cherry Blossom', image: 'backgrounds/09-cherry-blossom-park.webp', grid: false },
+  { name: '🛋️ Cozy Bedroom',   image: 'backgrounds/10-cozy-bedroom.webp',        grid: false },
+  { name: '🎤 Hype Stage',     image: 'backgrounds/11-hype-stage.webp',          grid: false },
+  { name: '🐠 Underwater',     image: 'backgrounds/12-underwater-reef.webp',     grid: false },
+  { name: '🚀 Mars',           image: 'backgrounds/13-mars-space.webp',          grid: false },
+  { name: '🎨 Graffiti Alley', image: 'backgrounds/14-graffiti-alley.webp',      grid: false },
+  { name: '🌧️ Rainy Rooftop',  image: 'backgrounds/15-rainy-rooftop.webp',       grid: false },
+];
+
+function gradientTexture(colors) {
+  const c = document.createElement('canvas');
+  c.width = 2; c.height = 512;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 512);
+  colors.forEach((col, i) => grad.addColorStop(i / (colors.length - 1), col));
+  g.fillStyle = grad; g.fillRect(0, 0, 2, 512);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+// photos fill the frame without being stretched (like CSS "cover")
+function fitCover(t) {
+  const img = t.image;
+  if (!img || img.width <= 2) return;
+  const view = renderer.domElement.width / renderer.domElement.height;
+  const pic = img.width / img.height;
+  t.repeat.set(1, 1); t.offset.set(0, 0);
+  if (pic > view) { t.repeat.x = view / pic; t.offset.x = (1 - t.repeat.x) / 2; }
+  else            { t.repeat.y = pic / view; t.offset.y = (1 - t.repeat.y) / 2; }
+}
+window.addEventListener('resize', () => { if (scene.background?.isTexture) fitCover(scene.background); });
+
+function setBackground(i) {
+  const bg = BACKGROUNDS[i];
+  grid.visible = bg.grid !== false;
+  if (bg.image) {
+    new THREE.TextureLoader().load(bg.image, (t) => {
+      t.colorSpace = THREE.SRGBColorSpace; fitCover(t); scene.background = t;
+    });
+  } else {
+    scene.background = gradientTexture(bg.colors);
+  }
+  document.querySelectorAll('#bgPicker button').forEach((b, j) => b.classList.toggle('active', j === i));
+}
+
+const picker = document.getElementById('bgPicker');   // needs <div id="bgPicker"> in index.html
+if (picker) BACKGROUNDS.forEach((bg, i) => {
+  const b = document.createElement('button');
+  b.className = 'small'; b.textContent = bg.name;
+  b.addEventListener('click', () => setBackground(i));
+  picker.appendChild(b);
+});
+setBackground(0);
+
 // ================= LOAD DANCER + DANCES =================
 const loader = new GLTFLoader();
 const draco = new DRACOLoader();
@@ -70,6 +139,7 @@ draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
 loader.setDRACOLoader(draco);
 
 let mixer = null;
+let rig = null;
 const clips = {};          // dance id -> AnimationClip
 const clock = new THREE.Clock();
 
@@ -84,6 +154,7 @@ async function loadEverything() {
     scene.add(model);
     mixer = new THREE.AnimationMixer(model);
     frameModel(model);
+    rig = createRetargeter(model);
     console.log('The girl comes from:', file);
   };
   try {
@@ -105,8 +176,37 @@ async function loadEverything() {
   if (!model) console.warn('None of the .glb files have her body - export character.glb in Object Mode');
   document.getElementById('loading').textContent =
     model ? '' : 'No body found – export character.glb in Object Mode.';
+  await refreshRecorded();
   renderLibrary();
 }
+
+// ================= RECORDED MOVES + MUSIC =================
+let recorded = [];   // moves recorded in studio.html
+
+async function refreshRecorded() {
+  if (!rig) return;
+  recorded = await loadRecordedMoves(rig, clips);
+  routine = routine.filter((s) => clips[s.id]);   // drop moves that were deleted
+}
+
+// Coming back from the studio? Pick up any new moves.
+window.addEventListener('focus', async () => { await refreshRecorded(); renderLibrary(); renderRoutine(); });
+
+const allDances = () => [...DANCES, ...recorded];
+
+// A step's speed after matching the dance to the song's tempo
+function effectiveSpeed(step) {
+  const dance = allDances().find((d) => d.id === step.id);
+  return clamp(step.speed * tempoFactor(dance?.bpm), 0.25, 4);
+}
+
+// ================= SHARE WITH export.js =================
+window.tanda = {
+  get routine() { return routine; },     // always the latest routine, even after the AI replaces it
+  play: () => { stopAll(); return playRoutine(); },
+  seconds: () => routine.reduce((t, s) => t + ((clips[s.id]?.duration || 4) / effectiveSpeed(s)) * s.repeats, 0),
+  setExportBackground: () => {},          // the chosen background is already part of the video
+};
 
 function frameModel(model) {
   let box = new THREE.Box3().setFromObject(model);
@@ -179,18 +279,22 @@ function playClip(id, { speed = 1, repeats = 1 } = {}) {
 async function playRoutine() {
   if (!routine.length) return setNowPlaying('Add some moves first!');
   const token = ++playToken;
-  startMusic();          // plays the song the AI picked (if any)
-  for (let i = 0; i < routine.length; i++) {
-    if (token !== playToken) return;
-    const step = routine[i];
-    highlightStep(i);
-    setNowPlaying(`Now: <b>${danceName(step.id)}</b> (${i + 1}/${routine.length})`);
-    await playClip(step.id, step);
-  }
+  const msToFirstBeat = await startMusic();               // start the song...
+  await new Promise((r) => setTimeout(r, msToFirstBeat)); // ...and wait for its first beat
+  do {                                                    // repeat to fill the chosen music length
+    for (let i = 0; i < routine.length; i++) {
+      if (token !== playToken) return;
+      if (musicTimeUp()) break;                           // music's chosen time is over
+      const step = routine[i];
+      highlightStep(i);
+      setNowPlaying(`Now: <b>${danceName(step.id)}</b> (${i + 1}/${routine.length})`);
+      await playClip(step.id, { speed: effectiveSpeed(step), repeats: step.repeats });
+    }
+  } while (token === playToken && keepDancing());
   if (token === playToken) {
     highlightStep(-1);
-    stopMusic(true);
     setNowPlaying('Routine finished 🎉');
+    stopMusic(1.5);
   }
 }
 
@@ -214,7 +318,7 @@ function addStep(id, speed = 1, repeats = 1) {
 function renderLibrary() {
   const lib = document.getElementById('library');
   lib.innerHTML = '';
-  for (const d of DANCES) {
+  for (const d of allDances()) {
     const ok = !!clips[d.id];
     const el = document.createElement('div');
     el.className = 'move' + (ok ? '' : ' missing');
@@ -270,14 +374,29 @@ function highlightStep(i) {
 // (Only on your own computer. On a deployed website the page and the server share one address, so no prefix is needed.)
 const ON_MY_COMPUTER = ['localhost', '127.0.0.1'].includes(location.hostname);
 const API_BASE = ON_MY_COMPUTER && location.port !== '3000' ? 'http://localhost:3000' : '';
+// The AI picked a song: choose it in the song picker (music.js) and wait for it to load.
+async function pickAiSong(m) {
+  const sel = document.getElementById('songSelect');
+  if (!sel || !m || !m.title) return;
+  const norm = (t) => String(t).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const want = norm(m.title);
+  const opt = [...sel.options].find(o => o.value !== '' && norm(o.textContent).includes(want));
+  if (!opt) return;
+  if (sel.value !== opt.value) { sel.value = opt.value; sel.dispatchEvent(new Event('change')); }
+  for (let i = 0; i < 80; i++) {            // wait up to ~8 s for the song to decode
+    const cur = getCurrentSong();
+    if (cur && norm(cur.meta.title || '').includes(want)) return;
+    await new Promise(r => setTimeout(r, 100));
+  }
+}
+
 async function askAI() {
   const prompt = document.getElementById('prompt').value.trim();
   const out = document.getElementById('aiOut');
   const btn = document.getElementById('aiBtn');
   if (!prompt) { out.innerHTML = '<p class="error">Type what you want first!</p>'; return; }
-  unlockMusic();   // lets the browser play the song later (needs a click)
 
-  const available = DANCES.filter(d => clips[d.id]).map(d => ({ id: d.id, name: d.name, desc: d.desc, dur: clips[d.id].duration }));  btn.disabled = true;
+  const available = allDances().filter(d => clips[d.id]).map(d => ({ id: d.id, name: d.name, desc: d.desc, dur: clips[d.id].duration }));  btn.disabled = true;
   out.innerHTML = '<p>💭 Choreographing…</p>';
   try {
     const res = await fetch(API_BASE + '/api/choreograph', {
@@ -297,8 +416,10 @@ async function askAI() {
       <h3>${escapeHtml(data.name || 'Your routine')}</h3>
       <p>${escapeHtml(data.vibe || '')}</p>
       ${data.tips?.length ? `<ul>${data.tips.map(t => `<li>${escapeHtml(t)}</li>`).join('')}</ul>` : ''}`;
-    setSong(data.music);
-    renderSong(out);
+    if (data.music) {
+      out.innerHTML += `<div style="margin-top:10px;padding:10px 12px;border-radius:12px;border:1px solid #19f0d6;background:rgba(25,240,214,.08)">🎵 <b>${escapeHtml(data.music.title || '')}</b>${data.music.artist ? ' – ' + escapeHtml(data.music.artist) : ''}<br><small>${escapeHtml(data.music.reason || '')}</small></div>`;
+      await pickAiSong(data.music);   // selects the song in the song picker
+    }
     stopAll();
     playRoutine();
   } catch (err) {
@@ -310,7 +431,7 @@ async function askAI() {
 }
 
 // ================= HELPERS + BUTTONS =================
-function danceName(id) { return DANCES.find(d => d.id === id)?.name || id; }
+function danceName(id) { return allDances().find(d => d.id === id)?.name || id; }
 function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 function setNowPlaying(html) { document.getElementById('nowPlaying').innerHTML = html; }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -318,11 +439,12 @@ function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp
 document.getElementById('playBtn').addEventListener('click', () => { stopAll(); playRoutine(); });
 document.getElementById('stopBtn').addEventListener('click', stopAll);
 document.getElementById('clearBtn').addEventListener('click', () => {
-  stopAll(); clearSong(); routine = []; renderRoutine();
+  stopAll(); routine = []; renderRoutine();
   document.getElementById('routineName').textContent = '';
   document.getElementById('aiOut').innerHTML = '';
 });
 document.getElementById('aiBtn').addEventListener('click', askAI);
 
 renderRoutine();
+setupSongPicker(document.getElementById('songSelect'), document.getElementById('bpmChip'), stopAll);
 loadEverything();

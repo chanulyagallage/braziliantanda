@@ -27,17 +27,41 @@
         <div id="loading">Loading dancer…</div>
       </div>
       <div class="now-playing" id="nowPlaying">Ready</div>
+      <div class="music-bar">
+        <span class="music-label">🎵 Song</span>
+        <select id="songSelect"><option value="">No music</option></select>
+        <span id="bpmChip" class="chip"></span>
+      </div>
+      <div id="musicTimelineWrap" class="music-timeline" hidden>
+        <canvas id="musicTimeline" title="Click or drag to choose where your routine starts"></canvas>
+        <div class="music-row">
+          <button id="previewBtn" class="small">▶ Preview</button>
+          <span class="music-label">Length</span>
+          <div class="seg" id="lengthControl">
+            <button data-length="fit" class="active" title="Music lasts as long as your routine">Fit routine</button>
+            <button data-length="15">15s</button>
+            <button data-length="30">30s</button>
+            <button data-length="60">60s</button>
+          </div>
+          <span id="musicInfo" class="music-info"></span>
+        </div>
+      </div>
       <div class="controls">
         <button id="playBtn" class="primary">▶ Play routine</button>
         <button id="stopBtn">■ Stop</button>
         <button id="clearBtn">Clear</button>
+        <button id="exportBtn">⬇ Export video</button>
       </div>
+      <div id="bgPicker" class="bg-picker"></div>
     </section>
 
     <!-- RIGHT: moves, routine, AI -->
     <section class="side">
       <div class="panel">
-        <h2>1. Dance moves</h2>
+        <div class="panel-head">
+          <h2>1. Dance moves</h2>
+          <a class="record-link" href="studio.html">🎥 Record your own move</a>
+        </div>
         <p class="hint">Click a move to preview it, or press + to add it to your routine.</p>
         <div id="library" class="library"></div>
       </div>
@@ -59,5 +83,6 @@
   </main>
 
   <script type="module" src="app.js"></script>
+  <script src="export.js"></script>
 </body>
 </html>

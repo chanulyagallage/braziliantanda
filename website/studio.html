@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dance Studio</title>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <style>
+    :root {
+      --bg: #0e0e10;
+      --card: #18181b;
+      --line: #2a2a2e;
+      --text: #f4f4f5;
+      --muted: #8a8a93;
+      --pink: #ff2d55;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { height: 100%; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    /* Whole app fits in the window: top bar, then the stage + sidebar */
+    .app {
+      height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 12px;
+      padding: 14px;
+      max-width: 1500px;
+      margin: 0 auto;
+    }
+
+    .card { background: var(--card); border-radius: 14px; padding: 12px 14px; }
+    .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .spacer { flex: 1; }
+    .label { font-size: 13px; color: var(--muted); }
+    .back {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px; border-radius: 50%;
+      background: #222226; border: 1px solid var(--line);
+      color: var(--text); text-decoration: none; font-size: 16px;
+    }
+    .back:hover { background: #2c2c31; }
+    h1 { font-size: 17px; margin: 0 6px 0 2px; letter-spacing: -0.02em; white-space: nowrap; }
+    h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 10px; }
+
+    select {
+      appearance: none;
+      background: #222226 url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%238a8a93'/></svg>") no-repeat right 12px center;
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px 32px 8px 12px;
+      font-size: 14px;
+      min-width: 180px;
+    }
+
+    button {
+      font: inherit;
+      font-size: 14px;
+      color: var(--text);
+      background: #222226;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 7px 12px;
+      cursor: pointer;
+    }
+
+    button:hover:not(:disabled) { background: #2c2c31; }
+    button:disabled { opacity: 0.35; cursor: default; }
+
+    .icon-btn { width: 36px; height: 36px; padding: 0; font-size: 14px; border-radius: 50%; }
+    .chip { font-size: 12px; color: var(--muted); padding: 5px 9px; border: 1px solid var(--line); border-radius: 999px; }
+    .tiny { font-size: 12px; padding: 4px 8px; border-radius: 8px; color: var(--muted); }
+
+    .segmented {
+      display: inline-flex;
+      background: #222226;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 3px;
+    }
+
+    .segmented button { border: none; background: transparent; padding: 4px 12px; border-radius: 7px; color: var(--muted); }
+    .segmented button.active { background: var(--pink); color: #fff; }
+    .toggle.on { border-color: var(--pink); color: var(--pink); }
+
+    #timeline {
+      display: block;
+      width: 100%;
+      height: 56px;
+      margin-top: 10px;
+      border-radius: 8px;
+      background: #0b0b0d;
+      cursor: pointer;
+    }
+
+    /* ---------- Main area ---------- */
+    .workspace {
+      display: grid;
+      grid-template-columns: 1fr 290px;
+      gap: 12px;
+      min-height: 0; /* lets the stage shrink to fit the window */
+    }
+
+    .stage {
+      position: relative;
+      border-radius: 14px;
+      overflow: hidden;
+      background: #000;
+      min-height: 0;
+    }
+
+    /* Two views: one fills the stage, the other sits in the corner */
+    .view { position: absolute; overflow: hidden; }
+    .view.main { inset: 0; }
+    .view.pip {
+      right: 16px;
+      bottom: 16px;
+      width: 24%;
+      min-width: 150px;
+      aspect-ratio: 3 / 4;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.12);
+      box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+      z-index: 2;
+      cursor: pointer;
+    }
+    .view.pip:hover { border-color: rgba(255,255,255,0.35); }
+
+    #camView video,
+    #camView canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1); /* mirror, like a selfie camera */
+    }
+
+    #camHint {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    #charStage { background: radial-gradient(ellipse at 50% 30%, #2a2a31, #0b0b0d 75%); }
+    #charStage canvas { display: block; }
+
+    .view-label {
+      position: absolute;
+      left: 10px;
+      top: 8px;
+      font-size: 11px;
+      color: var(--muted);
+      pointer-events: none;
+      z-index: 1;
+    }
+    .view.main .view-label { display: none; }
+
+    #bigText {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 140px;
+      font-weight: 700;
+      text-shadow: 0 0 40px rgba(0,0,0,0.8);
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    #recBadge {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      background: var(--pink);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 999px;
+      display: none;
+      z-index: 3;
+    }
+
+    /* Record button floats at the bottom of the stage */
+    .stage-controls {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 40px 16px 18px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      background: linear-gradient(transparent, rgba(0,0,0,0.55));
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    #mainButton {
+      pointer-events: auto;
+      background: var(--pink);
+      border: none;
+      color: #fff;
+      font-size: 16px;
+      font-weight: 600;
+      padding: 12px 30px;
+      border-radius: 999px;
+    }
+
+    #mainButton:hover:not(:disabled) { background: #ff4d6d; }
+    #status { margin: 0; font-size: 13px; color: #ddd; min-height: 1.2em; text-shadow: 0 1px 4px #000; }
+
+    /* ---------- Sidebar ---------- */
+    .sidebar { display: flex; flex-direction: column; min-height: 0; }
+    #skinSection { margin-bottom: 16px; }
+    #skinPicker button.active { border-color: var(--pink); color: var(--pink); }
+
+    #moveList { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; min-height: 0; }
+
+    .move {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      background: #1f1f23;
+      border: 1px solid transparent;
+      border-radius: 10px;
+    }
+
+    .move.playing { border-color: var(--pink); }
+    .move .icon-btn { width: 32px; height: 32px; flex: none; }
+    .move .info { flex: 1; min-width: 0; }
+
+    .move input {
+      display: block;
+      width: 100%;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 0;
+    }
+
+    .move input:focus { outline: none; border-bottom: 1px solid var(--pink); }
+    .move .meta { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .move .delete { color: var(--muted); padding: 4px 6px; flex: none; }
+    .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
+
+    .admin { display: none !important; }
+    body.is-admin .admin { display: inline-flex !important; }
+
+    /* Small screens: stack everything and allow scrolling */
+    @media (max-width: 860px) {
+      .app { height: auto; }
+      .workspace { grid-template-columns: 1fr; }
+      .stage { height: 75vh; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+
+    <!-- ===== TOP BAR: song + section ===== -->
+    <div class="card">
+      <div class="row">
+        <a class="back" href="index.html" title="Back to the dance builder">←</a>
+        <h1>Dance Studio</h1>
+        <select id="songSelect"><option>Loading…</option></select>
+        <button id="playSongButton" class="icon-btn" title="Play song" disabled>▶</button>
+        <span id="bpmChip" class="chip">– BPM</span>
+        <button id="halfTempo" class="tiny" title="Tempo too fast? Halve it" disabled>½×</button>
+        <button id="doubleTempo" class="tiny" title="Tempo too slow? Double it" disabled>2×</button>
+        <div class="spacer"></div>
+        <span class="label">Length</span>
+        <div class="segmented" id="beatsControl">
+          <button data-beats="4">4</button>
+          <button data-beats="8" class="active">8</button>
+          <button data-beats="16">16</button>
+        </div>
+        <button id="clicksToggle" class="toggle" title="Play a click on every beat">Clicks</button>
+        <button id="practiseButton" disabled>Practise</button>
+      </div>
+
+      <canvas id="timeline" title="Click to choose where your move starts"></canvas>
+
+      <div class="row admin" style="margin-top:10px">
+        <span class="label">Beat grid</span>
+        <button class="tiny" id="nudgeEarlier">◀ 10ms</button>
+        <button class="tiny" id="nudgeLater">10ms ▶</button>
+        <button class="tiny" id="copySettings">Copy for songs.json</button>
+      </div>
+    </div>
+
+    <!-- ===== MAIN: stage + sidebar ===== -->
+    <div class="workspace">
+      <div class="stage">
+        <div class="view main" id="camView">
+          <div id="camHint">Start the camera to begin</div>
+          <video id="webcam" autoplay playsinline muted></video>
+          <canvas id="overlay"></canvas>
+          <span class="view-label">You</span>
+        </div>
+
+        <div class="view pip" id="charStage" title="Click to swap views">
+          <span class="view-label" id="charLabel">Character</span>
+        </div>
+
+        <div id="recBadge">● REC</div>
+        <div id="bigText"></div>
+
+        <div class="stage-controls">
+          <button id="mainButton" disabled>Loading…</button>
+          <p id="status"></p>
+        </div>
+      </div>
+
+      <div class="card sidebar">
+        <div id="skinSection">
+          <h2>Character</h2>
+          <div class="row" id="skinPicker"></div>
+        </div>
+        <h2>My moves</h2>
+        <div id="moveList"><div class="empty">Your recorded moves will appear here</div></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="studio.js"></script>
+</body>
+</html>
