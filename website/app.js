@@ -234,8 +234,7 @@ async function askAI() {
   const btn = document.getElementById('aiBtn');
   if (!prompt) { out.innerHTML = '<p class="error">Type what you want first!</p>'; return; }
 
-  const available = DANCES.filter(d => clips[d.id]).map(({ id, name, desc }) => ({ id, name, desc }));
-  btn.disabled = true;
+  const available = DANCES.filter(d => clips[d.id]).map(d => ({ id: d.id, name: d.name, desc: d.desc, dur: clips[d.id].duration }));  btn.disabled = true;
   out.innerHTML = '<p>💭 Choreographing…</p>';
   try {
     const res = await fetch('/api/choreograph', {
