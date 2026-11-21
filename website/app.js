@@ -38,7 +38,7 @@ const DANCES = [
 const stage = document.getElementById('stage');
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 stage.appendChild(renderer.domElement);
@@ -106,6 +106,14 @@ async function loadEverything() {
     model ? '' : 'No body found – export character.glb in Object Mode.';
   renderLibrary();
 }
+
+// ================= SHARE WITH export.js =================
+window.tanda = {
+  get routine() { return routine; },     // always the latest routine, even after the AI replaces it
+  play: () => { stopAll(); return playRoutine(); },
+  seconds: () => routine.reduce((t, s) => t + ((clips[s.id]?.duration || 4) / s.speed) * s.repeats, 0),
+  setExportBackground: (on) => { scene.background = on ? new THREE.Color(0x1e1830) : null; },
+};
 
 function frameModel(model) {
   let box = new THREE.Box3().setFromObject(model);
