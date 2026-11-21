@@ -5,13 +5,9 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import {
-  PoseLandmarker,
-  FilesetResolver,
-  DrawingUtils
-} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs";
-
-import { detectBeats } from "./beat-detect.js";
+// The body tracker is big (~20 MB), so it's loaded in the background later
+// instead of here. A fixed version number lets the browser cache it.
+const MEDIAPIPE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.2.3";
 import { createRetargeter, samplePoints, mirrorPoints, smoothMove } from "./retarget.js";
 import { saveMove, listMoves, deleteMove } from "./moves-db.js";
 
@@ -45,7 +41,8 @@ const statusText = $("status");
 
 const say = (t) => (statusText.textContent = t);
 const round = (n) => Math.round(n * 10000) / 10000;
-const overlayDraw = new DrawingUtils(overlayCtx);
+let overlayDraw = null;      // set once the tracker has loaded
+let mp = null;               // the MediaPipe library, once loaded
 
 // ---------- State ----------
 const audioCtx = new AudioContext(); // master clock for all timing
@@ -126,18 +123,20 @@ async function loadSkinList() {
   skinPicker.style.display = skins.length > 1 ? "flex" : "none";
 
   let saved = 0;
-  try { saved = Number(localStorage.getItem("skin") || 0); } catch {}
+  try { saved = Number(localStorage.getItem("skin") || 0); } catch { }
   await selectSkin(saved < skins.length ? saved : 0);
 }
 
 async function selectSkin(index) {
   const meta = skins[index];
   for (const b of skinPicker.children) b.classList.toggle("active", Number(b.dataset.index) === index);
-  try { localStorage.setItem("skin", index); } catch {}
+  try { localStorage.setItem("skin", index); } catch { }
 
   if (!skinCache[meta.id]) {
     charLabel.textContent = "Loading…";
-    const gltf = await gltfLoader.loadAsync(meta.file);
+    const gltf = await gltfLoader.loadAsync(meta.file, (e) => {
+      if (e.lengthComputable) charLabel.textContent = `Loading ${Math.round((e.loaded / e.total) * 100)}%`;
+    });
     const model = gltf.scene;
     model.traverse((o) => o.isMesh && (o.frustumCulled = false));
     skinCache[meta.id] = { model, rig: createRetargeter(model) };
@@ -199,11 +198,37 @@ async function getSong(meta, withBeats = true) {
   }
   const s = songCache[meta.id];
   if (withBeats && (!s.bpm || s.firstBeat === undefined)) {
-    const detected = detectBeats(s.buffer);
+    const detected = await detectBeatsCached(meta, s.buffer);
     s.bpm = s.bpm || detected.bpm;
     s.firstBeat = s.firstBeat ?? detected.firstBeat;
   }
   return s;
+}
+
+// Work out the tempo in a background worker (so the page doesn't freeze),
+// and remember the answer so each song is only analysed once per browser
+async function detectBeatsCached(meta, buffer) {
+  const key = `beats:${meta.id}:${meta.file}`;
+  try {
+    const saved = JSON.parse(localStorage.getItem(key));
+    if (saved) return saved;
+  } catch { }
+
+  // Mix to mono and hand a copy to the worker
+  const mono = new Float32Array(buffer.length);
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const data = buffer.getChannelData(c);
+    for (let i = 0; i < data.length; i++) mono[i] += data[i] / buffer.numberOfChannels;
+  }
+  const result = await new Promise((resolve, reject) => {
+    const worker = new Worker("beat-worker.js", { type: "module" });
+    worker.onmessage = (e) => { resolve(e.data); worker.terminate(); };
+    worker.onerror = (e) => { reject(e); worker.terminate(); };
+    worker.postMessage({ samples: mono, sampleRate: buffer.sampleRate }, [mono.buffer]);
+  });
+
+  try { localStorage.setItem(key, JSON.stringify(result)); } catch { }
+  return result;
 }
 
 async function selectSong(index) {
@@ -369,7 +394,7 @@ function startSong(buffer, when, offset, stopAt) {
 function stopSession() {
   if (!session) return;
   for (const node of session.nodes) {
-    try { node.stop(); } catch {}
+    try { node.stop(); } catch { }
   }
   const type = session.type;
   session = null;
@@ -467,36 +492,50 @@ async function playMove(move) {
 // ==========================================================
 // CAMERA
 // ==========================================================
-async function loadTracker() {
-  const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
-  );
-  poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath:
-        "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
-      delegate: "GPU"
-    },
-    runningMode: "VIDEO",
-    numPoses: 1
-  });
-  mainButton.disabled = false;
-  mainButton.textContent = "Start camera";
+let trackerPromise = null;
+function loadTracker() {
+  trackerPromise ||= (async () => {
+    mp = await import(`${MEDIAPIPE}/vision_bundle.mjs`);
+    const vision = await mp.FilesetResolver.forVisionTasks(`${MEDIAPIPE}/wasm`);
+    poseLandmarker = await mp.PoseLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath:
+          "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+        delegate: "GPU"
+      },
+      runningMode: "VIDEO",
+      numPoses: 1
+    });
+    overlayDraw = new mp.DrawingUtils(overlayCtx);
+  })();
+  return trackerPromise;
 }
 
 async function startCamera() {
+  mainButton.disabled = true;
+  mainButton.textContent = "Starting…";
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
-    video.srcObject = stream;
-    video.addEventListener("loadeddata", () => {
-      overlay.width = video.videoWidth;
-      overlay.height = video.videoHeight;
-      cameraReady = true;
-      mainButton.textContent = "● Record";
-      say("Step back so your whole body is in view");
-    }, { once: true });
-  } catch {
-    say("Camera blocked. Allow access in the address bar.");
+    // Ask for the camera while the tracker finishes loading
+    const cameraPromise = navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
+    video.srcObject = await cameraPromise;
+    await new Promise((r) => (video.readyState >= 2 ? r() : video.addEventListener("loadeddata", r, { once: true })));
+    overlay.width = video.videoWidth;
+    overlay.height = video.videoHeight;
+
+    if (!poseLandmarker) say("Getting the tracker ready (only slow the first time)…");
+    await loadTracker();
+
+    cameraReady = true;
+    mainButton.textContent = "● Record";
+    say("Step back so your whole body is in view");
+  } catch (err) {
+    mainButton.textContent = "Start camera";
+    say(err && err.name === "NotAllowedError"
+      ? "Camera blocked. Allow access in the address bar."
+      : "Couldn't start. Check your internet and try again.");
+    trackerPromise = null;
+  } finally {
+    mainButton.disabled = false;
   }
 }
 
@@ -523,7 +562,7 @@ function mainLoop() {
 
       overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
       if (found) {
-        overlayDraw.drawConnectors(result.landmarks[0], PoseLandmarker.POSE_CONNECTIONS, {
+        overlayDraw.drawConnectors(result.landmarks[0], mp.PoseLandmarker.POSE_CONNECTIONS, {
           color: isRecording ? "#ff2d55" : "#00e5ff",
           lineWidth: 4
         });
@@ -674,7 +713,13 @@ function escapeHtml(s) {
 
 // ---------- Go ----------
 mainLoop();
-loadSongList();
-loadSkinList().catch((err) => say("Couldn't load the character: " + err.message));
+mainButton.disabled = false;
+mainButton.textContent = "Start camera";
 listMoves().then((m) => { moves = m; renderMoveList(); });
-loadTracker().catch(() => say("Couldn't load the tracker. Check your internet."));
+
+// Load the song and character first. Once they're on screen, quietly start
+// downloading the tracker so it's usually ready by the time you hit Start camera.
+Promise.allSettled([
+  loadSongList(),
+  loadSkinList().catch((err) => say("Couldn't load the character: " + err.message))
+]).then(() => loadTracker().catch(() => (trackerPromise = null)));
