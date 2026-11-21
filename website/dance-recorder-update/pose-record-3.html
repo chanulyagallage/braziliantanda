@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -15,7 +16,9 @@
       --yellow: #ffcc00;
     }
 
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
 
     body {
       margin: 0;
@@ -50,7 +53,9 @@
       flex-wrap: wrap;
     }
 
-    .spacer { flex: 1; }
+    .spacer {
+      flex: 1;
+    }
 
     /* ---------- Controls ---------- */
     select {
@@ -76,8 +81,14 @@
       transition: background 0.15s;
     }
 
-    button:hover:not(:disabled) { background: #2c2c31; }
-    button:disabled { opacity: 0.35; cursor: default; }
+    button:hover:not(:disabled) {
+      background: #2c2c31;
+    }
+
+    button:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
 
     .icon-btn {
       width: 42px;
@@ -162,7 +173,9 @@
       overflow: hidden;
     }
 
-    .panels.split .stage { max-width: 356px; }
+    .panels.split .stage {
+      max-width: 356px;
+    }
 
     .stage video,
     .stage canvas {
@@ -182,15 +195,6 @@
       color: var(--muted);
     }
 
-    #placeholder {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--muted);
-      font-size: 40px;
-    }
 
     #bigText {
       position: absolute;
@@ -200,7 +204,7 @@
       justify-content: center;
       font-size: 120px;
       font-weight: 700;
-      text-shadow: 0 0 30px rgba(0,0,0,0.8);
+      text-shadow: 0 0 30px rgba(0, 0, 0, 0.8);
       pointer-events: none;
     }
 
@@ -216,7 +220,9 @@
       display: none;
     }
 
-    #previewStage { display: none; }
+    #previewStage {
+      display: none;
+    }
 
     /* ---------- Main action ---------- */
     .actions {
@@ -236,7 +242,9 @@
       border-radius: 999px;
     }
 
-    #mainButton:hover:not(:disabled) { background: #ff4d6d; }
+    #mainButton:hover:not(:disabled) {
+      background: #ff4d6d;
+    }
 
     #status {
       margin: 12px 0 0;
@@ -246,17 +254,25 @@
       min-height: 1.3em;
     }
 
-    .admin { display: none !important; }
-    body.is-admin .admin { display: inline-flex !important; }
+    .admin {
+      display: none !important;
+    }
+
+    body.is-admin .admin {
+      display: inline-flex !important;
+    }
   </style>
 </head>
+
 <body>
   <h1>Record a move</h1>
 
   <!-- ===== SONG ===== -->
   <div class="card">
     <div class="row">
-      <select id="songSelect"><option>Loading…</option></select>
+      <select id="songSelect">
+        <option>Loading…</option>
+      </select>
       <button id="playSongButton" class="icon-btn" title="Play song" disabled>▶</button>
       <div class="spacer"></div>
       <span id="bpmChip" class="chip">– BPM</span>
@@ -294,7 +310,6 @@
       <div class="stage">
         <video id="webcam" autoplay playsinline muted></video>
         <canvas id="overlay"></canvas>
-        <div id="placeholder">📷</div>
         <div id="recBadge">● REC</div>
         <div id="bigText"></div>
       </div>
@@ -344,7 +359,6 @@
     const video = $("webcam");
     const overlay = $("overlay");
     const overlayCtx = overlay.getContext("2d");
-    const placeholder = $("placeholder");
     const previewStage = $("previewStage");
     const preview = $("preview");
     const previewCtx = preview.getContext("2d");
@@ -599,7 +613,7 @@
     function stopSession() {
       if (!session) return;
       for (const node of session.nodes) {
-        try { node.stop(); } catch {}
+        try { node.stop(); } catch { }
       }
       const type = session.type;
       session = null;
@@ -746,7 +760,6 @@
           overlay.width = preview.width = video.videoWidth;
           overlay.height = preview.height = video.videoHeight;
           cameraReady = true;
-          placeholder.style.display = "none";
           mainButton.textContent = "● Record";
           say("Step back so your whole body is in view");
         });
@@ -897,4 +910,5 @@
     loadModel().catch(() => say("Couldn't load the tracker. Check your internet."));
   </script>
 </body>
+
 </html>
