@@ -6,16 +6,22 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 // ================= YOUR DANCES =================
 // Add a line here for every new dance. "id" must match the action name in Blender.
 const DANCES = [
-  { id: 'funkydance',  name: 'Funky Bop',    emoji: '🕺', file: 'Dances/Magdalene/boppingdance.glb',
+  { id: 'funkydance',  name: 'Funky Bop',    emoji: '🕺', file: 'Dances/Magdalene/MKBopping.glb',
     desc: 'Knee bops – arms open when she rises, tuck in when she dips, turning left then right.' },
-  { id: 'hiphits',     name: 'Hip Hits',     emoji: '💃', file: 'Dances/Magdalene/sidetoside.glb',
+  { id: 'hiphits',     name: 'Hip Hits',     emoji: '💃', file: 'Dances/Magdalene/MKSidetoSide.glb',
     desc: 'Hands slap the hips right-left-right while the hips pop out to meet them.' },
-  { id: 'shakawalk',   name: 'Shaka Walk',   emoji: '🤙', file: 'Dances/Magdalene/shakastep.glb',
+  { id: 'shakawalk',   name: 'Shaka Walk',   emoji: '🤙', file: 'Dances/Magdalene/MKShaka.glb',
     desc: 'Shaka hands shaking while she steps forward and back, opposite arm out front.' },
   { id: 'kneebending', name: 'Knee Bending', emoji: '🦵', file: 'Dances/Chanulya/kneebending.glb',
     desc: 'Chanulya’s Brazilian knee bending groove.' },
   { id: 'woah',        name: 'Woah',         emoji: '😮', file: 'Dances/Chanulya/woah.glb',
     desc: 'Chanulya’s Brazilian woah move.' },
+  { id: 'canirideh',   name: 'Can I Ride (Hands)', emoji: '🙌', file: 'Dances/Pranusha/Can_i_ride_hands.glb',
+    desc: 'Pranusha’s Can I Ride – hands part.' },
+  { id: 'canuridel',   name: 'Can I Ride (Legs)',  emoji: '🦿', file: 'Dances/Pranusha/Can_i_ride_legs.glb',
+    desc: 'Pranusha’s Can I Ride – legs part.' },
+  { id: 'drumjump',    name: 'Drum Jump',    emoji: '🥁', file: 'Dances/Pranusha/drum_jump.glb',
+    desc: 'Pranusha’s drum jump move.' },
 ];
 
 // ================= 3D STAGE =================
@@ -56,8 +62,20 @@ let mixer = null;
 const clips = {};          // dance id -> AnimationClip
 const clock = new THREE.Clock();
 
+// The girl on the website comes from this file - every dance plays on her.
+const CHARACTER_FILE = 'Dances/Chanulya/kneebending.glb';
+
 async function loadEverything() {
   let model = null;
+  try {
+    const gltf = await loader.loadAsync(CHARACTER_FILE);
+    model = gltf.scene;
+    scene.add(model);
+    mixer = new THREE.AnimationMixer(model);
+    frameModel(model);
+  } catch (err) {
+    console.warn('Could not load character', CHARACTER_FILE, err);
+  }
   for (const dance of DANCES) {
     try {
       const gltf = await loader.loadAsync(dance.file);
@@ -67,9 +85,8 @@ async function loadEverything() {
         mixer = new THREE.AnimationMixer(model);
         frameModel(model);
       }
-      // a file can hold one dance or several - grab every animation by name
-      for (const anim of gltf.animations) clips[anim.name] = anim;
-      if (!clips[dance.id] && gltf.animations[0]) clips[dance.id] = gltf.animations[0];
+      const clip = gltf.animations.find(a => a.name === dance.id) || gltf.animations[0];
+      if (clip) clips[dance.id] = clip;
     } catch (err) {
       console.warn('Could not load', dance.file, err);
     }
