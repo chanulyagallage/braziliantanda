@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -15,7 +14,6 @@
     }
   </script>
 </head>
-
 <body>
   <header>
     <h1>Brazilian Tanda <span class="tag">build your own dance</span></h1>
@@ -31,10 +29,15 @@
       <div class="now-playing" id="nowPlaying">Ready</div>
       <div class="music-bar">
         <span class="music-label">🎵 Song</span>
-        <select id="songSelect">
-          <option value="">No music</option>
-        </select>
+        <select id="songSelect"><option value="">No music</option></select>
         <span id="bpmChip" class="chip"></span>
+      </div>
+      <div id="musicTimelineWrap" class="music-timeline" hidden>
+        <canvas id="musicTimeline" title="Click or drag to choose where your routine starts"></canvas>
+        <div class="music-row">
+          <button id="previewBtn" class="small">▶ Preview</button>
+          <span id="musicInfo" class="music-info"></span>
+        </div>
       </div>
       <div class="controls">
         <button id="playBtn" class="primary">▶ Play routine</button>
@@ -64,10 +67,8 @@
 
       <div class="panel ai">
         <h2>3. AI choreographer ✨</h2>
-        <p class="hint">Describe the vibe. The AI picks the moves, order, speed and repeats – or remixes your current
-          routine.</p>
-        <textarea id="prompt" rows="3"
-          placeholder="e.g. make me a 20 second hype routine that starts chill and ends with the shaka walk"></textarea>
+        <p class="hint">Describe the vibe. The AI picks the moves, order, speed and repeats – or remixes your current routine.</p>
+        <textarea id="prompt" rows="3" placeholder="e.g. make me a 20 second hype routine that starts chill and ends with the shaka walk"></textarea>
         <button id="aiBtn" class="primary">Choreograph it</button>
         <div id="aiOut" class="ai-out"></div>
       </div>
@@ -77,5 +78,4 @@
   <script type="module" src="app.js"></script>
   <script src="export.js"></script>
 </body>
-
 </html>
