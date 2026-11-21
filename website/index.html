@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Brazilian Tanda – Build Your Dance</title>
+  <title>Jinga</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Unbounded:wght@600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
   <script type="importmap">
     {
@@ -15,72 +18,147 @@
   </script>
 </head>
 <body>
-  <header>
-    <h1>Brazilian Tanda <span class="tag">build your own dance</span></h1>
-    <p class="sub">Pick the moves you like, stack them into a routine, or let the AI choreograph one for you.</p>
+  <!-- The 3D scene fills the whole window; everything else floats on top of it -->
+  <div id="stage">
+    <div id="loading">Loading dancer</div>
+  </div>
+
+  <!-- TOP: name + what's playing -->
+  <header class="topbar glass">
+    <span class="brand">jinga</span>
+    <span class="divider"></span>
+    <span id="nowPlaying" class="now">Ready</span>
   </header>
 
-  <main>
-    <!-- LEFT: the dancer -->
-    <section class="stage-wrap">
-      <div id="stage">
-        <div id="loading">Loading dancer…</div>
-      </div>
-      <div class="now-playing" id="nowPlaying">Ready</div>
-      <div class="music-bar">
-        <span class="music-label">🎵 Song</span>
-        <select id="songSelect"><option value="">No music</option></select>
-        <span id="bpmChip" class="chip"></span>
-      </div>
-      <div id="musicTimelineWrap" class="music-timeline" hidden>
-        <canvas id="musicTimeline" title="Click or drag to choose where your routine starts"></canvas>
-        <div class="music-row">
-          <button id="previewBtn" class="small">▶ Preview</button>
-          <span class="music-label">Length</span>
-          <div class="seg" id="lengthControl">
-            <button data-length="fit" class="active" title="Music lasts as long as your routine">Fit routine</button>
-            <button data-length="15">15s</button>
-            <button data-length="30">30s</button>
-            <button data-length="60">60s</button>
+  <!-- LEFT: tab rail + panel -->
+  <aside id="sidePanel" class="side glass">
+    <nav class="rail" aria-label="Panels">
+      <button id="closeBtn" class="rail-btn" title="Hide panel" aria-label="Hide panel">
+        <svg class="icon-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        <svg class="icon-open" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></svg>
+      </button>
+      <span class="rail-gap"></span>
+      <button class="rail-btn" data-tab="backgrounds" title="Backgrounds" aria-label="Backgrounds">
+        <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="M21 15.5l-5-5L6.5 19"/></svg>
+      </button>
+      <button class="rail-btn" data-tab="music" title="Music" aria-label="Music">
+        <svg viewBox="0 0 24 24"><path d="M9 17.5V6l10-2v11.5"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="16.5" cy="15.5" r="2.5"/></svg>
+      </button>
+      <button class="rail-btn" data-tab="chat" title="AI choreographer" aria-label="AI choreographer">
+        <svg viewBox="0 0 24 24"><path d="M5 5h14a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 17h-9l-5 4v-4.5A1.5 1.5 0 0 1 3.5 15V6.5A1.5 1.5 0 0 1 5 5z"/><path d="M8 10h8M8 13h5"/></svg>
+      </button>
+      <button class="rail-btn" data-tab="settings" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>
+      </button>
+      <button class="rail-btn" data-tab="export" title="Export" aria-label="Export">
+        <svg viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14"/></svg>
+      </button>
+    </nav>
+
+    <div class="panel-body">
+      <div class="panel-inner">
+
+        <section class="pane" data-pane="backgrounds">
+          <h2>Backgrounds</h2>
+          <div id="bgPicker" class="bg-list"></div>
+        </section>
+
+        <section class="pane" data-pane="music" hidden>
+          <h2>Music</h2>
+          <label class="field">
+            <span class="field-row"><span>Song</span><span id="bpmChip" class="chip"></span></span>
+            <select id="songSelect"><option value="">No music</option></select>
+          </label>
+          <div class="field">
+            <span class="field-row"><span>Length</span></span>
+            <div class="seg" id="lengthControl">
+              <button data-length="fit" class="active" title="Music lasts as long as your routine">Fit</button>
+              <button data-length="15">15s</button>
+              <button data-length="30">30s</button>
+              <button data-length="60">60s</button>
+            </div>
           </div>
-          <span id="musicInfo" class="music-info"></span>
+          <button id="previewBtn" class="wide">Preview</button>
+          <p id="musicInfo" class="hint"></p>
+          <p class="hint">Once a song is picked, its waveform appears above the timeline. Drag on it to choose where the routine starts, and drag its right edge to set the length.</p>
+        </section>
+
+        <section class="pane fill" data-pane="chat" hidden>
+          <h2>AI choreographer</h2>
+          <div id="chatLog" class="chat-log"></div>
+          <form id="chatForm" class="chat-form">
+            <textarea id="prompt" rows="3" placeholder="e.g. a 20 second routine that starts chill and ends with the shaka walk"></textarea>
+            <button id="aiBtn" class="primary" type="submit">Send</button>
+          </form>
+        </section>
+
+        <section class="pane" data-pane="settings" hidden>
+          <h2>Settings</h2>
+          <h3>View</h3>
+          <label class="field">
+            <span class="field-row"><span>Zoom</span><output id="zoomOut">100%</output></span>
+            <input type="range" id="zoomRange" min="0.6" max="1.8" step="0.01" value="1" />
+          </label>
+          <label class="field">
+            <span class="field-row"><span>Rotation</span><output id="rotOut">0°</output></span>
+            <input type="range" id="rotRange" min="-180" max="180" step="1" value="0" />
+          </label>
+          <button id="resetView" class="wide">Reset view</button>
+          <h3>Selected move</h3>
+          <div id="stepSettings"></div>
+        </section>
+
+        <section class="pane" data-pane="export" hidden>
+          <h2>Export</h2>
+          <p class="hint">Saves a video of your routine on the background you picked. The video is silent, so you can add a sound when you post it.</p>
+          <button id="exportBtn" class="primary wide">Export video</button>
+          <p class="hint">It records in real time, so a 20 second routine takes 20 seconds to export.</p>
+        </section>
+
+      </div>
+    </div>
+  </aside>
+
+  <!-- RIGHT: camera tracking -->
+  <a id="trackCard" class="track-card glass" href="studio.html">
+    <svg viewBox="0 0 24 24"><rect x="3" y="7" width="13" height="10" rx="2"/><path d="M16 11l5-3v8l-5-3"/></svg>
+    <span>
+      <strong>Camera tracking</strong>
+      <small>Record your own move</small>
+    </span>
+  </a>
+
+  <!-- BOTTOM: timeline + moves -->
+  <section id="dock" class="dock glass">
+    <div class="timeline-row">
+      <div class="tl-label">
+        <span class="tl-title">Routine</span>
+        <span id="routineName" class="tl-name"></span>
+        <span id="routineTime" class="tl-time">0.0 s</span>
+      </div>
+      <div class="tl-main">
+        <div id="musicTimelineWrap" class="lane" hidden>
+          <canvas id="musicTimeline" title="Drag to choose where your routine starts in the song"></canvas>
+        </div>
+        <div id="track" class="track">
+          <div id="playhead" class="playhead" hidden></div>
+          <p id="trackEmpty" class="track-empty">Add moves from below to build your routine</p>
         </div>
       </div>
-      <div class="controls">
-        <button id="playBtn" class="primary">▶ Play routine</button>
-        <button id="stopBtn">■ Stop</button>
-        <button id="clearBtn">Clear</button>
-        <button id="exportBtn">⬇ Export video</button>
+      <div class="transport">
+        <button id="playBtn" class="icon-btn primary" title="Play routine" aria-label="Play routine">
+          <svg viewBox="0 0 24 24" class="solid"><path d="M8 5.5v13l10.5-6.5z"/></svg>
+        </button>
+        <button id="stopBtn" class="icon-btn" title="Stop" aria-label="Stop">
+          <svg viewBox="0 0 24 24" class="solid"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/></svg>
+        </button>
+        <button id="clearBtn" class="icon-btn" title="Clear routine" aria-label="Clear routine">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 12.5h9l1-12.5"/></svg>
+        </button>
       </div>
-      <div id="bgPicker" class="bg-picker"></div>
-    </section>
-
-    <!-- RIGHT: moves, routine, AI -->
-    <section class="side">
-      <div class="panel">
-        <div class="panel-head">
-          <h2>1. Dance moves</h2>
-          <a class="record-link" href="studio.html">🎥 Record your own move</a>
-        </div>
-        <p class="hint">Click a move to preview it, or press + to add it to your routine.</p>
-        <div id="library" class="library"></div>
-      </div>
-
-      <div class="panel">
-        <h2>2. Your routine <span id="routineName" class="routine-name"></span></h2>
-        <ol id="routine" class="routine"></ol>
-        <p id="emptyRoutine" class="hint">No moves yet – add some above or ask the AI below.</p>
-      </div>
-
-      <div class="panel ai">
-        <h2>3. AI choreographer ✨</h2>
-        <p class="hint">Describe the vibe. The AI picks the moves, order, speed and repeats – or remixes your current routine.</p>
-        <textarea id="prompt" rows="3" placeholder="e.g. make me a 20 second hype routine that starts chill and ends with the shaka walk"></textarea>
-        <button id="aiBtn" class="primary">Choreograph it</button>
-        <div id="aiOut" class="ai-out"></div>
-      </div>
-    </section>
-  </main>
+    </div>
+    <div id="library" class="move-grid"></div>
+  </section>
 
   <script type="module" src="app.js"></script>
   <script src="export.js"></script>

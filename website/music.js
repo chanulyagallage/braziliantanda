@@ -273,7 +273,7 @@ function showTimeline(on) {
 
 function updatePreviewButton() {
   const btn = $("previewBtn");
-  if (btn) btn.textContent = music && music.preview ? "■ Stop" : "▶ Preview";
+  if (btn) btn.textContent = music && music.preview ? "Stop preview" : "Preview";
 }
 
 function buildPeaks() {
@@ -309,10 +309,15 @@ function drawLoop() {
   const x0 = toX(start);
   const x1 = toX(end);
 
+  // Colours follow the page's accent, which changes with the background
+  const css = getComputedStyle(document.documentElement);
+  const accent = css.getPropertyValue("--accent").trim() || "#ff7ab8";
+  const accentSoft = css.getPropertyValue("--accent-soft").trim() || "rgba(255, 122, 184, 0.24)";
+
   ctx.clearRect(0, 0, w, h);
 
   if (hasRange) {
-    ctx.fillStyle = "rgba(255, 79, 163, 0.22)";
+    ctx.fillStyle = accentSoft;
     ctx.fillRect(x0, 0, x1 - x0, h);
   }
 
@@ -323,13 +328,13 @@ function drawLoop() {
   // Waveform
   const mid = h / 2;
   for (let x = 0; x < w; x++) {
-    ctx.fillStyle = hasRange && x >= x0 && x < x1 ? "#ff7ab8" : "#5a4f73";
+    ctx.fillStyle = hasRange && x >= x0 && x < x1 ? accent : "rgba(255, 255, 255, 0.28)";
     const bar = Math.max(1, currentSong.peaks[x] * h * 0.42);
     ctx.fillRect(x, mid - bar, 1, bar * 2);
   }
 
   // Start marker, and a grab handle on the end edge
-  ctx.fillStyle = "#ff4fa3";
+  ctx.fillStyle = accent;
   ctx.fillRect(x0 - dpr, 0, 2 * dpr, h);
   if (hasRange) {
     ctx.fillRect(x1 - dpr, 0, 2 * dpr, h);
