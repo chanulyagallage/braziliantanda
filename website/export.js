@@ -78,22 +78,24 @@ function routineSeconds(steps, dances) {
 }
 
 // =====================================================================
-//  HOOK IT UP  –  change the 3 names marked  <-- YOUR NAME  to match your code
+//  HOOK IT UP  –  uses window.tanda, which app.js sets up
 // =====================================================================
 document.getElementById('exportBtn')?.addEventListener('click', async (e) => {
   const btn = e.currentTarget;
-  const canvas = document.querySelector('canvas');                  // <-- YOUR NAME (if you have more than one canvas)
-  const steps = window.routine || [];                               // <-- YOUR NAME (the current routine steps)
+  const tanda = window.tanda;
+  if (!tanda) return alert('The dancer is still loading – try again in a second.');
+  const steps = tanda.routine;
   if (!steps.length) return alert('Build a routine first!');
 
   btn.disabled = true;
   const label = btn.textContent;
   btn.textContent = 'Recording… (plays in real time)';
+  tanda.setExportBackground(true);          // solid background, otherwise the video is black behind her
   try {
     const ext = await exportVideo({
-      canvas,
-      play: () => window.playRoutine(steps),                        // <-- YOUR NAME (starts the routine from the top)
-      seconds: routineSeconds(steps, window.dances || []),          // used if playRoutine doesn't return a Promise
+      canvas: document.querySelector('#stage canvas'),
+      play: () => tanda.play(),               // starts the routine from the top, finishes when it ends
+      seconds: tanda.seconds(),               // backup timer
       filename: 'tanda-routine',
     });
     btn.textContent = `Saved .${ext} ✓`;
@@ -101,6 +103,7 @@ document.getElementById('exportBtn')?.addEventListener('click', async (e) => {
     alert(err.message || 'Export failed');
     btn.textContent = label;
   } finally {
+    tanda.setExportBackground(false);
     setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 2000);
   }
 });
